@@ -1,6 +1,8 @@
 from app.models.comentario import Comentario
 from app.models.documento import Documento
 from app.models.historial_estado import HistorialEstado
+from app.models.lista import Lista
+from app.models.lista_valor import ListaValor
 from app.models.permiso import Permiso
 from app.models.propuesta import Propuesta
 from app.models.propuesta_estado import PropuestaEstado
@@ -16,6 +18,8 @@ __all__ = [
     "Comentario",
     "Documento",
     "HistorialEstado",
+    "Lista",
+    "ListaValor",
     "Permiso",
     "Propuesta",
     "PropuestaEstado",

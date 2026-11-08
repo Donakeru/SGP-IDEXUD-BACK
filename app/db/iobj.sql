@@ -73,7 +73,34 @@ CREATE TABLE tsgp_rol_permiso (
         ON DELETE CASCADE
 );
 
--- 6. Estados de Propuesta
+-- 6. Listas
+CREATE TABLE tsgp_lista (
+    id_lista BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    nombre TEXT NOT NULL UNIQUE,
+    es_activo BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 7. Valores de Lista
+CREATE TABLE tsgp_lista_valor (
+    id_lista_valor BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id_lista BIGINT NOT NULL,
+    valor TEXT NOT NULL,
+    es_activo BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT uq_lista_valor_lista_valor
+        UNIQUE (id_lista, valor),
+
+    CONSTRAINT fk_lista_valor_lista
+        FOREIGN KEY (id_lista)
+        REFERENCES tsgp_lista(id_lista)
+        ON DELETE CASCADE
+);
+
+-- 8. Estados de Propuesta
 CREATE TABLE tsgp_propuesta_estado (
     id_propuesta_estado BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     nombre TEXT NOT NULL UNIQUE,
@@ -83,7 +110,7 @@ CREATE TABLE tsgp_propuesta_estado (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 7. Transiciones de Estado
+-- 9. Transiciones de Estado
 CREATE TABLE tsgp_transicion_estado (
     id_transicion BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     id_estado_origen BIGINT NOT NULL,
@@ -111,15 +138,16 @@ CREATE TABLE tsgp_transicion_estado (
         UNIQUE (id_estado_origen, id_estado_destino)
 );
 
--- 8. Propuestas
+-- 10. Propuestas
 CREATE TABLE tsgp_propuesta (
     id_propuesta BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     uuid_expediente UUID NOT NULL,
     id_propuesta_estado BIGINT NOT NULL,
     nombre TEXT NOT NULL,
     descripcion TEXT,
+    justificacion TEXT NOT NULL,
     fecha_inicio TIMESTAMPTZ NOT NULL,
-    fecha_fin TIMESTAMPTZ NOT NULL,
+    fecha_fin TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
@@ -132,7 +160,7 @@ CREATE TABLE tsgp_propuesta (
         ON DELETE RESTRICT
 );
 
--- 9. Solicitante de la Propuesta
+-- 11. Solicitante de la Propuesta
 CREATE TABLE tsgp_propuesta_solicitante (
     id_propuesta_solicitante BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     id_propuesta BIGINT NOT NULL,
@@ -163,7 +191,7 @@ CREATE TABLE tsgp_propuesta_solicitante (
         )
 );
 
--- 10. Historial de Estados
+-- 12. Historial de Estados
 CREATE TABLE tsgp_historial_estado (
     id_historial BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     id_propuesta BIGINT NOT NULL,
@@ -194,7 +222,7 @@ CREATE TABLE tsgp_historial_estado (
         ON DELETE RESTRICT
 );
 
--- 11. Tipos de Documento
+-- 13. Tipos de Documento
 CREATE TABLE tsgp_tipo_documento (
     id_tipo_documento BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     nombre TEXT NOT NULL UNIQUE,
@@ -203,7 +231,7 @@ CREATE TABLE tsgp_tipo_documento (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 12. Documentos (Adaptada a almacenamiento local)
+-- 14. Documentos (Adaptada a almacenamiento local)
 CREATE TABLE tsgp_documento (
     id_documento BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     uuid_archivo UUID NOT NULL,
@@ -252,7 +280,7 @@ CREATE TABLE tsgp_documento (
         CHECK (estado_carga IN ('pendiente', 'cargado', 'fallido'))
 );
 
--- 13. Comentarios
+-- 15. Comentarios
 CREATE TABLE tsgp_comentario (
     id_comentario BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     id_propuesta BIGINT NOT NULL,
@@ -299,7 +327,11 @@ CREATE INDEX idx_comentario_usuario ON tsgp_comentario(id_usuario);
 CREATE INDEX idx_transicion_origen ON tsgp_transicion_estado(id_estado_origen);
 CREATE INDEX idx_transicion_destino ON tsgp_transicion_estado(id_estado_destino);
 
--- DATA
+/**
+----------------------------------------
+                DATA
+----------------------------------------
+*/
 
 INSERT INTO tsgp_rol (codigo, nombre) VALUES
     ('administrador', 'Administrador del Sistema'),
@@ -342,3 +374,32 @@ INNER JOIN tsgp_usuario u
 INNER JOIN tsgp_rol r
     ON r.codigo = asignaciones.codigo
 ON CONFLICT (id_usuario, id_rol) DO NOTHING;
+
+
+INSERT INTO tsgp_tipo_documento (nombre, es_inmutable) VALUES
+    ('propuesta', FALSE),
+    ('facultad', FALSE)
+ON CONFLICT (nombre) DO NOTHING;
+
+
+INSERT INTO tsgp_lista (nombre, es_activo) VALUES
+    ('tipo_postulante', TRUE),
+    ('tipo_propuesta', TRUE)
+ON CONFLICT (nombre) DO NOTHING;
+
+INSERT INTO tsgp_lista_valor (id_lista, valor, es_activo)
+SELECT listas.id_lista, valores.valor, TRUE
+FROM (
+    VALUES
+        ('tipo_postulante', 'Entidad Externa'),
+        ('tipo_postulante', 'Facultad'),
+        ('tipo_postulante', 'Instituto'),
+        ('tipo_postulante', 'Rectoría'),
+        ('tipo_propuesta', 'Educacion continuada'),
+        ('tipo_propuesta', 'Servicios Académicos'),
+        ('tipo_propuesta', 'Cosultoría'),
+        ('tipo_propuesta', 'Proyecto Especial')
+) AS valores(nombre_lista, valor)
+INNER JOIN tsgp_lista listas
+    ON listas.nombre = valores.nombre_lista
+ON CONFLICT (id_lista, valor) DO NOTHING;

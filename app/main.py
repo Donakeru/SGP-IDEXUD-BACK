@@ -1,7 +1,7 @@
 import uvicorn
 import logging
 from fastapi import FastAPI, APIRouter
-from app.routers import user_router, proposal_router
+from app.routers import user_router, proposal_router, list_router
 from app.db import check_database_connection, close_database_connection
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
@@ -30,8 +30,6 @@ app = FastAPI(
 )
 
 origins = [
-    "http://localhost.tiangolo.com",
-    "https://localhost.tiangolo.com",
     "http://localhost",
     "http://localhost:5173",
 ]
@@ -49,9 +47,9 @@ api_router = APIRouter(prefix="/api")
 
 api_router.include_router(user_router.router)
 api_router.include_router(proposal_router.router)
-
+api_router.include_router(list_router.router)
 
 app.include_router(api_router)
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="127.0.0.1", port=8080, reload=True)
+    uvicorn.run("main:app")

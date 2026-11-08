@@ -20,6 +20,9 @@ class Settings:
     db_host: str = getenv("DB_HOST") or "localhost"
     db_port: int = int(getenv("DB_PORT") or "5432")
     db_name: str = getenv("DB_NAME", "")
+    storage_root: Path = field(
+        default_factory=lambda: PROJECT_ROOT / (getenv("STORAGE_ROOT") or "storages")
+    )
 
     def get_database_url(self) -> URL:
 

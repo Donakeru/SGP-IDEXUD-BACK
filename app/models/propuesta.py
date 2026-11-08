@@ -42,8 +42,9 @@ class Propuesta(Base):
     )
     nombre: Mapped[str] = mapped_column(Text, nullable=False)
     descripcion: Mapped[str | None] = mapped_column(Text)
+    justificacion: Mapped[str] = mapped_column(Text, nullable=False)
     fecha_inicio: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    fecha_fin: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    fecha_fin: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
 

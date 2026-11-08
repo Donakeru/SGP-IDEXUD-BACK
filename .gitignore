@@ -30,3 +30,6 @@ htmlcov/
 # OS Generated Files
 .DS_Store
 Thumbs.db
+
+# Local uploaded files
+storages/

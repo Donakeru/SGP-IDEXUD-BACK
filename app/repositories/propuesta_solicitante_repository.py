@@ -12,8 +12,8 @@ class PropuestaSolicitanteRepository:
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    def create(self, data: dict[str, Any]) -> PropuestaSolicitante:
-        """Inserta un solicitante y devuelve la entidad persistida."""
+    def add(self, data: dict[str, Any]) -> PropuestaSolicitante:
+        """Agrega un solicitante a la sesión sin confirmar la transacción."""
         solicitante = PropuestaSolicitante(**data)
 
         if (
@@ -23,6 +23,11 @@ class PropuestaSolicitanteRepository:
             solicitante.fecha_aceptacion_privacidad = datetime.now(timezone.utc)
 
         self.db.add(solicitante)
+        return solicitante
+
+    def create(self, data: dict[str, Any]) -> PropuestaSolicitante:
+        """Inserta un solicitante y devuelve la entidad persistida."""
+        solicitante = self.add(data)
         try:
             self.db.commit()
             self.db.refresh(solicitante)
