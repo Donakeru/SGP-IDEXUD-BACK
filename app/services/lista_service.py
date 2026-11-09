@@ -3,7 +3,7 @@
 from sqlalchemy.orm import Session
 
 from app.models.lista_valor import ListaValor
-from app.repositories.lista_repository import ListaRepository
+from app.repositories import ListaRepository
 
 
 class ListaService:

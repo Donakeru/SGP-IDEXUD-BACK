@@ -197,7 +197,8 @@ CREATE TABLE tsgp_historial_estado (
     id_propuesta BIGINT NOT NULL,
     id_estado_anterior BIGINT,
     id_estado_nuevo BIGINT NOT NULL,
-    id_usuario BIGINT NOT NULL,
+    id_usuario BIGINT,
+    id_propuesta_solicitante BIGINT,
     motivo TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
@@ -219,7 +220,15 @@ CREATE TABLE tsgp_historial_estado (
     CONSTRAINT fk_he_usuario
         FOREIGN KEY (id_usuario)
         REFERENCES tsgp_usuario(id_usuario)
-        ON DELETE RESTRICT
+        ON DELETE RESTRICT,
+
+    CONSTRAINT fk_he_solicitante
+        FOREIGN KEY (id_propuesta_solicitante)
+        REFERENCES tsgp_propuesta_solicitante(id_propuesta_solicitante)
+        ON DELETE CASCADE,
+
+    CONSTRAINT chk_he_autor
+        CHECK (num_nonnulls(id_usuario, id_propuesta_solicitante) = 1)
 );
 
 -- 13. Tipos de Documento
@@ -237,7 +246,8 @@ CREATE TABLE tsgp_documento (
     uuid_archivo UUID NOT NULL,
     id_propuesta BIGINT NOT NULL,
     id_tipo_documento BIGINT NOT NULL,
-    id_usuario BIGINT NOT NULL,
+    id_usuario BIGINT,
+    id_propuesta_solicitante BIGINT,
     id_documento_origen BIGINT,
     ruta_archivo TEXT NOT NULL UNIQUE, -- Ruta relativa/absoluta en el servidor backend
     nombre_original TEXT NOT NULL,
@@ -271,13 +281,21 @@ CREATE TABLE tsgp_documento (
         REFERENCES tsgp_usuario(id_usuario)
         ON DELETE CASCADE,
 
+    CONSTRAINT fk_doc_solicitante
+        FOREIGN KEY (id_propuesta_solicitante)
+        REFERENCES tsgp_propuesta_solicitante(id_propuesta_solicitante)
+        ON DELETE CASCADE,
+
     CONSTRAINT fk_doc_origen
         FOREIGN KEY (id_documento_origen)
         REFERENCES tsgp_documento(id_documento)
         ON DELETE CASCADE,
 
     CONSTRAINT chk_doc_estado_carga
-        CHECK (estado_carga IN ('pendiente', 'cargado', 'fallido'))
+        CHECK (estado_carga IN ('pendiente', 'cargado', 'fallido')),
+
+    CONSTRAINT chk_doc_autor
+        CHECK (num_nonnulls(id_usuario, id_propuesta_solicitante) = 1)
 );
 
 -- 15. Comentarios
@@ -313,6 +331,7 @@ CREATE INDEX idx_propuesta_estado ON tsgp_propuesta(id_propuesta_estado);
 CREATE INDEX idx_documento_propuesta ON tsgp_documento(id_propuesta);
 CREATE INDEX idx_documento_tipo ON tsgp_documento(id_tipo_documento);
 CREATE INDEX idx_documento_usuario ON tsgp_documento(id_usuario);
+CREATE INDEX idx_documento_solicitante ON tsgp_documento(id_propuesta_solicitante);
 CREATE INDEX idx_documento_origen ON tsgp_documento(id_documento_origen);
 
 -- Trazabilidad e Historial

@@ -6,20 +6,27 @@ from fastapi import UploadFile
 from sqlalchemy.orm import Session
 
 from app.models.propuesta import Propuesta
-from app.repositories.documento_repository import DocumentoRepository
-from app.repositories.propuesta_estado_repository import PropuestaEstadoRepository
-from app.repositories.propuesta_repository import PropuestaRepository
-from app.repositories.propuesta_solicitante_repository import (
+
+from app.repositories import (
+    DocumentoRepository,
+    PropuestaEstadoRepository,
+    PropuestaRepository,
     PropuestaSolicitanteRepository,
+    TipoDocumentoRepository,
+    HistorialEstadoRepository
 )
-from app.repositories.tipo_documento_repository import TipoDocumentoRepository
+
 from app.schemas.propuesta import (
     CreateProposalDto,
     ProposalListItem,
     ProposalListResponse,
+    ProposalReviewDocument,
+    ProposalReviewHistory,
+    ProposalReviewItem,
 )
+
 from app.services.storage_service import StorageService, StoredFile
-from app.utils.date_utils import as_utc_datetime
+from app.utils import as_utc_datetime, format_date, format_file_size, format_history_date
 
 
 class ProposalService:
@@ -29,12 +36,10 @@ class ProposalService:
     PROPOSAL_DOCUMENT_TYPE = "propuesta"
     FACULTY_DOCUMENT_TYPE = "facultad"
 
-    # TODO: reemplazar por el usuario autenticado cuando exista esa dependencia.
-    DEFAULT_STORAGE_USER_ID = 1
-
     def __init__(self, db: Session) -> None:
         self.db = db
         self.propuesta_repository = PropuestaRepository(db)
+        self.historial_estado_repository = HistorialEstadoRepository(db)
         self.estado_repository = PropuestaEstadoRepository(db)
         self.solicitante_repository = PropuestaSolicitanteRepository(db)
         self.documento_repository = DocumentoRepository(db)
@@ -96,11 +101,13 @@ class ProposalService:
 
         try:
             self.db.flush()
+
+
             self.storage_service.ensure_expedition_directory(
                 propuesta.uuid_expediente
             )
 
-            self.solicitante_repository.add(
+            solicitante = self.solicitante_repository.create(
                 {
                     "id_propuesta": propuesta.id_propuesta,
                     "tipo_solicitante": data.applicant_type,
@@ -113,20 +120,35 @@ class ProposalService:
                     "privacidad_aceptada": data.privacy_accepted,
                 }
             )
+            
+            self.db.flush()
+
+            self.historial_estado_repository.add(
+                {
+                    "id_propuesta": propuesta.id_propuesta,
+                    "id_estado_anterior": None,
+                    "id_estado_nuevo": estado.id_propuesta_estado,
+                    "id_propuesta_solicitante": solicitante.id_propuesta_solicitante,
+                    "motivo": "El Postulante registró la propuesta en sistema."
+                }
+            )
 
             stored_files.extend(
                 self._register_files(
                     files=data.proposal_files,
                     uuid_expediente=propuesta.uuid_expediente,
                     id_propuesta=propuesta.id_propuesta,
+                    id_propuesta_solicitante=solicitante.id_propuesta_solicitante,
                     tipo_documento=self.PROPOSAL_DOCUMENT_TYPE,
                 )
             )
+
             stored_files.extend(
                 self._register_files(
                     files=data.faculty_files,
                     uuid_expediente=propuesta.uuid_expediente,
                     id_propuesta=propuesta.id_propuesta,
+                    id_propuesta_solicitante=solicitante.id_propuesta_solicitante,
                     tipo_documento=self.FACULTY_DOCUMENT_TYPE,
                 )
             )
@@ -147,6 +169,7 @@ class ProposalService:
         files: list[UploadFile],
         uuid_expediente,
         id_propuesta: int,
+        id_propuesta_solicitante: int,
         tipo_documento: str,
     ) -> list[StoredFile]:
         if not files:
@@ -159,6 +182,7 @@ class ProposalService:
             )
 
         stored_files: list[StoredFile] = []
+        
         for upload in files:
             stored_file = self.storage_service.save_upload(
                 upload=upload,
@@ -171,7 +195,7 @@ class ProposalService:
                     "uuid_archivo": stored_file.uuid_archivo,
                     "id_propuesta": id_propuesta,
                     "id_tipo_documento": tipo.id_tipo_documento,
-                    "id_usuario": self.DEFAULT_STORAGE_USER_ID,
+                    "id_propuesta_solicitante": id_propuesta_solicitante,
                     "ruta_archivo": stored_file.ruta_archivo,
                     "nombre_original": stored_file.nombre_original,
                     "tipo_mime": stored_file.tipo_mime,
@@ -183,3 +207,119 @@ class ProposalService:
             )
 
         return stored_files
+
+    def list_review(self) -> list[ProposalReviewItem]:
+        """Devuelve las propuestas con la información de la vista de revisión."""
+        proposals = self.propuesta_repository.get_all_for_review()
+        return [self._to_review_item(proposal) for proposal in proposals]
+
+    def _to_review_item(self, propuesta: Propuesta) -> ProposalReviewItem:
+        solicitante = propuesta.solicitante
+        documents = [
+            document
+            for document in propuesta.documentos
+            if (
+                document.es_activo
+                and document.es_vigente
+                and document.fecha_eliminacion is None
+                and document.estado_carga == "cargado"
+            )
+        ]
+        proposal_documents = [
+            document
+            for document in documents
+            if document.tipo_documento.nombre == self.PROPOSAL_DOCUMENT_TYPE
+        ]
+        faculty_documents = [
+            document
+            for document in documents
+            if document.tipo_documento.nombre == self.FACULTY_DOCUMENT_TYPE
+        ]
+
+        return ProposalReviewItem(
+            id=str(propuesta.id_propuesta),
+            title=propuesta.nombre,
+            entity=solicitante.nombre_organizacion if solicitante else None,
+            applicantType=solicitante.tipo_solicitante if solicitante else None,
+            contactName=solicitante.nombre_contacto if solicitante else None,
+            contactEmail=solicitante.correo_contacto if solicitante else None,
+            # proposal_type todavía no se persiste en tsgp_propuesta.
+            proposalType=None,
+            description=propuesta.descripcion,
+            submittedAt=format_date(propuesta.created_at),
+            status=propuesta.estado.nombre,
+            dataComplete=self._is_data_complete(
+                propuesta=propuesta,
+                solicitante=solicitante,
+                proposal_documents=proposal_documents,
+            ),
+            # Representa la existencia de un documento de facultad cargado.
+            hasFacultyApproval=bool(faculty_documents),
+            documents=[
+                ProposalReviewDocument(
+                    name=document.nombre_original,
+                    size=format_file_size(document.tamano_bytes),
+                )
+                for document in documents
+            ],
+            history=self._build_history(propuesta),
+        )
+
+    @staticmethod
+    def _is_data_complete(
+        propuesta: Propuesta,
+        solicitante,
+        proposal_documents,
+    ) -> bool:
+        if solicitante is None:
+            return False
+
+        required_values = (
+            propuesta.nombre,
+            propuesta.descripcion,
+            propuesta.justificacion,
+            propuesta.fecha_inicio,
+            solicitante.tipo_solicitante,
+            solicitante.nombre_contacto,
+            solicitante.correo_contacto,
+            solicitante.telefono_contacto,
+        )
+        return all(value is not None and value != "" for value in required_values) and bool(
+            proposal_documents
+        )
+
+    def _build_history(self, propuesta: Propuesta) -> list[ProposalReviewHistory]:
+        history = sorted(
+            propuesta.historial_estados,
+            key=lambda item: (item.created_at, item.id_historial),
+        )
+
+        h = history[0] if history else None
+        if h is not None:
+            print(h.usuario)
+
+        if not history:
+            return []
+
+        return [
+            ProposalReviewHistory(
+                id=f"h-{propuesta.id_propuesta}-{item.id_historial}",
+                kind="decision",
+                text=self._history_text(item),
+                author= item.usuario.nombre if item.usuario is not None else "Postulante",
+                date=format_history_date(item.created_at),
+            )
+            for item in history
+        ]
+
+    @staticmethod
+    def _history_text(item) -> str:
+        if item.motivo:
+            return item.motivo
+        if item.estado_anterior is None:
+            return f'Propuesta registrada en estado "{item.estado_nuevo.nombre}".'
+        return (
+            f'Propuesta cambió de "{item.estado_anterior.nombre}" '
+            f'a "{item.estado_nuevo.nombre}".'
+        )
+    

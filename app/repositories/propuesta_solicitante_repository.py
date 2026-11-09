@@ -5,7 +5,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.models.propuesta_solicitante import PropuestaSolicitante
+from app.models import PropuestaSolicitante
 
 
 class PropuestaSolicitanteRepository:

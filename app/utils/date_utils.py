@@ -11,3 +11,26 @@ def as_utc_datetime(value: date | datetime) -> datetime:
         return value.astimezone(timezone.utc)
 
     return datetime.combine(value, time.min, tzinfo=timezone.utc)
+    
+
+def format_date(value: datetime) -> str:
+    months = (
+        "",
+        "ene",
+        "feb",
+        "mar",
+        "abr",
+        "may",
+        "jun",
+        "jul",
+        "ago",
+        "sep",
+        "oct",
+        "nov",
+        "dic",
+    )
+    return f"{value.day} {months[value.month]} {value.year}"
+
+
+def format_history_date(value: datetime) -> str:
+    return f"{format_date(value)}, {value:%H:%M}"

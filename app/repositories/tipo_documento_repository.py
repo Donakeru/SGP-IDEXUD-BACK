@@ -3,7 +3,7 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.tipo_documento import TipoDocumento
+from app.models import TipoDocumento
 
 
 class TipoDocumentoRepository:

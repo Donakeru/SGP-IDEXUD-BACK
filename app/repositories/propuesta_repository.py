@@ -3,9 +3,13 @@
 from typing import Any
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
-from app.models.propuesta import Propuesta
+from app.models import (
+    Documento,
+    HistorialEstado,
+    Propuesta
+)
 
 
 class PropuestaRepository:
@@ -39,3 +43,27 @@ class PropuestaRepository:
         propuestas = list(self.db.scalars(statement).unique().all())
 
         return propuestas, total
+
+    def get_all_for_review(self) -> list[Propuesta]:
+        """Obtiene propuestas con los datos necesarios para la revisión."""
+        statement = (
+            select(Propuesta)
+            .options(
+                joinedload(Propuesta.estado),
+                joinedload(Propuesta.solicitante),
+                selectinload(Propuesta.documentos).joinedload(
+                    Documento.tipo_documento
+                ),
+                selectinload(Propuesta.historial_estados).joinedload(
+                    HistorialEstado.estado_anterior
+                ),
+                selectinload(Propuesta.historial_estados).joinedload(
+                    HistorialEstado.estado_nuevo
+                ),
+                selectinload(Propuesta.historial_estados).joinedload(
+                    HistorialEstado.usuario
+                ),
+            )
+            .order_by(Propuesta.created_at.desc(), Propuesta.id_propuesta.desc())
+        )
+        return list(self.db.scalars(statement).unique().all())

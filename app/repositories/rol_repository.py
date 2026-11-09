@@ -6,7 +6,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.rol import Rol
+from app.models import Rol
 
 
 class RolRepository:

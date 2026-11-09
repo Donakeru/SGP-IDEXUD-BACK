@@ -4,7 +4,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.models.documento import Documento
+from app.models import Documento
 
 
 class DocumentoRepository:

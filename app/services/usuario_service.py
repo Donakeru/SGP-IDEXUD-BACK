@@ -3,7 +3,7 @@
 from sqlalchemy.orm import Session
 
 from app.models.usuario import Usuario
-from app.repositories.usuario_repository import UsuarioRepository
+from app.repositories import UsuarioRepository
 
 
 class UsuarioService:

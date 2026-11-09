@@ -6,10 +6,18 @@ from app.schemas.propuesta.ProposalListResponse import (
     ProposalListResponse,
 )
 from app.schemas.propuesta.ProposalResponse import ProposalResponse
+from app.schemas.propuesta.ProposalReviewResponse import (
+    ProposalReviewDocument,
+    ProposalReviewHistory,
+    ProposalReviewItem,
+)
 
 __all__ = [
     "CreateProposalDto",
     "ProposalListItem",
     "ProposalListResponse",
     "ProposalResponse",
+    "ProposalReviewDocument",
+    "ProposalReviewHistory",
+    "ProposalReviewItem",
 ]

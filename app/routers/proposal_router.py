@@ -10,10 +10,19 @@ from app.schemas.propuesta import (
     CreateProposalDto,
     ProposalListResponse,
     ProposalResponse,
+    ProposalReviewItem,
 )
 from app.services.proposal_service import ProposalService
 
 router = APIRouter(prefix="/proposal", tags=["proposal"])
+
+
+@router.get("/review", response_model=list[ProposalReviewItem])
+def review_proposals(
+    db: Session = Depends(get_db),
+) -> list[ProposalReviewItem]:
+    """Devuelve las propuestas con la información para revisión."""
+    return ProposalService(db).list_review()
 
 
 @router.get("/", response_model=ProposalListResponse)

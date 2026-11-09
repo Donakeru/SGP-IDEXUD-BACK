@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Literal
 from uuid import UUID, uuid4
 
-from sqlalchemy import BigInteger, Boolean, CHAR, CheckConstraint, DateTime, ForeignKey, Identity, Integer, Text, UniqueConstraint, text
+from sqlalchemy import BigInteger, Boolean, CHAR, CheckConstraint, DateTime, ForeignKey, Identity, Index, Integer, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -32,6 +32,14 @@ class Documento(Base):
             "estado_carga IN ('pendiente', 'cargado', 'fallido')",
             name="chk_doc_estado_carga",
         ),
+        CheckConstraint(
+            "num_nonnulls(id_usuario, id_propuesta_solicitante) = 1",
+            name="chk_doc_autor",
+        ),
+        Index(
+            "idx_documento_solicitante",
+            "id_propuesta_solicitante",
+        ),
     )
 
     id_documento: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
@@ -48,8 +56,19 @@ class Documento(Base):
         ForeignKey("tsgp_tipo_documento.id_tipo_documento", ondelete="RESTRICT"),
         nullable=False,
     )
-    id_usuario: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("tsgp_usuario.id_usuario", ondelete="CASCADE"), nullable=False
+    id_usuario: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("tsgp_usuario.id_usuario", ondelete="CASCADE"),
+        nullable=True,
+    )
+    id_propuesta_solicitante: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey(
+            "tsgp_propuesta_solicitante.id_propuesta_solicitante",
+            ondelete="CASCADE",
+            name="fk_doc_solicitante",
+        ),
+        nullable=True,
     )
     id_documento_origen: Mapped[int | None] = mapped_column(
         BigInteger,

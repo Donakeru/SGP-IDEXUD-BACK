@@ -3,7 +3,7 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.propuesta_estado import PropuestaEstado
+from app.models import PropuestaEstado
 
 
 class PropuestaEstadoRepository:

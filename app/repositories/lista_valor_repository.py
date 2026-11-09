@@ -5,7 +5,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.lista_valor import ListaValor
+from app.models import ListaValor
 
 
 class ListaValorRepository:
