@@ -11,7 +11,7 @@ def as_utc_datetime(value: date | datetime) -> datetime:
         return value.astimezone(timezone.utc)
 
     return datetime.combine(value, time.min, tzinfo=timezone.utc)
-    
+
 
 def format_date(value: datetime) -> str:
     months = (

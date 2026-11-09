@@ -1,7 +1,5 @@
 """DTO de respuesta para los valores de una lista."""
 
-from datetime import datetime
-
 from pydantic import BaseModel, ConfigDict
 
 

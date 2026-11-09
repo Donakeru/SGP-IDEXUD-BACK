@@ -1,6 +1,5 @@
 """Inserción de solicitantes asociados a una propuesta."""
 
-from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy.orm import Session

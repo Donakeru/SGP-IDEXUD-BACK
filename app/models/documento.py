@@ -3,22 +3,33 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
-from sqlalchemy import BigInteger, Boolean, CHAR, CheckConstraint, DateTime, ForeignKey, Identity, Index, Integer, Text, UniqueConstraint, text
+from sqlalchemy import (
+    CHAR,
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Identity,
+    Index,
+    Integer,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.core.constants import EstadoCarga
 from app.db.base import Base
 
 if TYPE_CHECKING:
     from app.models.propuesta import Propuesta
     from app.models.tipo_documento import TipoDocumento
     from app.models.usuario import Usuario
-
-
-EstadoCarga = Literal["pendiente", "cargado", "fallido"]
 
 
 class Documento(Base):
@@ -29,7 +40,12 @@ class Documento(Base):
             name="uq_documento_uuid_archivo",
         ),
         CheckConstraint(
-            "estado_carga IN ('pendiente', 'cargado', 'fallido')",
+            (
+                "estado_carga IN "
+                f"('{EstadoCarga.PENDIENTE.value}', "
+                f"'{EstadoCarga.CARGADO.value}', "
+                f"'{EstadoCarga.FALLIDO.value}')"
+            ),
             name="chk_doc_estado_carga",
         ),
         CheckConstraint(

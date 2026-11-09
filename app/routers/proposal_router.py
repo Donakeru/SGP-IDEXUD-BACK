@@ -5,6 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
+from app.core.exceptions import ConfigurationError
 from app.dependencies import get_db
 from app.schemas.propuesta import (
     CreateProposalDto,
@@ -47,7 +48,7 @@ def create_new_proposal(
     """Registra la propuesta, el solicitante y sus archivos."""
     try:
         propuesta = ProposalService(db).create_proposal(data=data)
-    except ValueError as exc:
+    except ConfigurationError as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(exc),

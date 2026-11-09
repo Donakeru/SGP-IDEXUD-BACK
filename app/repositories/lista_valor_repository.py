@@ -1,7 +1,5 @@
 """Repositorio síncrono de valores de listas."""
 
-from typing import Any
-
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 

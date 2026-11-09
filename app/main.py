@@ -1,10 +1,12 @@
-import uvicorn
 import logging
-from fastapi import FastAPI, APIRouter
-from app.routers import user_router, proposal_router, list_router
-from app.db import check_database_connection, close_database_connection
 from contextlib import asynccontextmanager
+
+import uvicorn
+from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+from app.db import check_database_connection, close_database_connection
+from app.routers import list_router, proposal_router, user_router
 
 # Configuración de Logger
 logging.basicConfig(

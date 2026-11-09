@@ -1,21 +1,31 @@
 """Servicio para registrar propuestas, solicitantes y documentos."""
 
 from datetime import datetime, timezone
+from uuid import UUID
 
 from fastapi import UploadFile
 from sqlalchemy.orm import Session
 
+from app.core.constants import (
+    AUTOR_SISTEMA,
+    MOTIVO_REGISTRO_INICIAL,
+    EstadoCarga,
+    EstadoPropuestaNombre,
+    HistoryKind,
+    TipoDocumentoNombre,
+)
+from app.core.exceptions import ConfigurationError
+from app.models.documento import Documento
 from app.models.propuesta import Propuesta
-
+from app.models.tipo_documento import TipoDocumento
 from app.repositories import (
     DocumentoRepository,
+    HistorialEstadoRepository,
     PropuestaEstadoRepository,
     PropuestaRepository,
     PropuestaSolicitanteRepository,
     TipoDocumentoRepository,
-    HistorialEstadoRepository
 )
-
 from app.schemas.propuesta import (
     CreateProposalDto,
     ProposalListItem,
@@ -24,17 +34,17 @@ from app.schemas.propuesta import (
     ProposalReviewHistory,
     ProposalReviewItem,
 )
-
 from app.services.storage_service import StorageService, StoredFile
-from app.utils import as_utc_datetime, format_date, format_file_size, format_history_date
+from app.utils import (
+    as_utc_datetime,
+    format_date,
+    format_file_size,
+    format_history_date,
+)
 
 
 class ProposalService:
     """Coordina el registro transaccional de una propuesta."""
-
-    REGISTERED_STATE = "Registrado"
-    PROPOSAL_DOCUMENT_TYPE = "propuesta"
-    FACULTY_DOCUMENT_TYPE = "facultad"
 
     def __init__(self, db: Session) -> None:
         self.db = db
@@ -81,11 +91,19 @@ class ProposalService:
         Los datos ``proposal_type`` todavía no se guardan porque la tabla de
         propuestas aún no tiene una columna para ese valor.
         """
-        estado = self.estado_repository.get_by_name(self.REGISTERED_STATE)
+        estado = self.estado_repository.get_by_name(
+            EstadoPropuestaNombre.REGISTRADO.value
+        )
         if estado is None:
-            raise ValueError(
-                "No existe el estado inicial 'Registrado' en la base de datos."
+            raise ConfigurationError(
+                f"No existe el estado inicial '{EstadoPropuestaNombre.REGISTRADO.value}' "
+                "en la base de datos."
             )
+
+        proposal_document_type = self._get_document_type(
+            TipoDocumentoNombre.PROPUESTA
+        )
+        faculty_document_type = self._get_document_type(TipoDocumentoNombre.FACULTAD)
 
         propuesta = self.propuesta_repository.create(
             {
@@ -98,16 +116,15 @@ class ProposalService:
         )
 
         stored_files: list[StoredFile] = []
+        uuid_expediente: UUID | None = None
 
         try:
             self.db.flush()
+            uuid_expediente = propuesta.uuid_expediente
 
+            self.storage_service.ensure_expedition_directory(uuid_expediente)
 
-            self.storage_service.ensure_expedition_directory(
-                propuesta.uuid_expediente
-            )
-
-            solicitante = self.solicitante_repository.create(
+            solicitante = self.solicitante_repository.add(
                 {
                     "id_propuesta": propuesta.id_propuesta,
                     "tipo_solicitante": data.applicant_type,
@@ -120,7 +137,7 @@ class ProposalService:
                     "privacidad_aceptada": data.privacy_accepted,
                 }
             )
-            
+
             self.db.flush()
 
             self.historial_estado_repository.add(
@@ -129,60 +146,54 @@ class ProposalService:
                     "id_estado_anterior": None,
                     "id_estado_nuevo": estado.id_propuesta_estado,
                     "id_propuesta_solicitante": solicitante.id_propuesta_solicitante,
-                    "motivo": "El Postulante registró la propuesta en sistema."
+                    "motivo": MOTIVO_REGISTRO_INICIAL,
                 }
             )
 
-            stored_files.extend(
-                self._register_files(
-                    files=data.proposal_files,
-                    uuid_expediente=propuesta.uuid_expediente,
-                    id_propuesta=propuesta.id_propuesta,
-                    id_propuesta_solicitante=solicitante.id_propuesta_solicitante,
-                    tipo_documento=self.PROPOSAL_DOCUMENT_TYPE,
-                )
+            self._register_files(
+                files=data.proposal_files,
+                stored_files=stored_files,
+                uuid_expediente=uuid_expediente,
+                id_propuesta=propuesta.id_propuesta,
+                id_propuesta_solicitante=solicitante.id_propuesta_solicitante,
+                tipo_documento=proposal_document_type,
             )
-
-            stored_files.extend(
-                self._register_files(
-                    files=data.faculty_files,
-                    uuid_expediente=propuesta.uuid_expediente,
-                    id_propuesta=propuesta.id_propuesta,
-                    id_propuesta_solicitante=solicitante.id_propuesta_solicitante,
-                    tipo_documento=self.FACULTY_DOCUMENT_TYPE,
-                )
+            self._register_files(
+                files=data.faculty_files,
+                stored_files=stored_files,
+                uuid_expediente=uuid_expediente,
+                id_propuesta=propuesta.id_propuesta,
+                id_propuesta_solicitante=solicitante.id_propuesta_solicitante,
+                tipo_documento=faculty_document_type,
             )
 
             self.db.commit()
         except Exception:
             self.db.rollback()
             self.storage_service.delete_files(stored_files)
-            self.storage_service.delete_expedition_directory(
-                propuesta.uuid_expediente
-            )
+            if uuid_expediente is not None:
+                self.storage_service.delete_expedition_directory(uuid_expediente)
             raise
 
         return propuesta
 
+    def _get_document_type(self, name: TipoDocumentoNombre) -> TipoDocumento:
+        tipo = self.tipo_documento_repository.get_by_name(name.value)
+        if tipo is None:
+            raise ConfigurationError(
+                f"No existe el tipo de documento '{name.value}' en la base de datos."
+            )
+        return tipo
+
     def _register_files(
         self,
         files: list[UploadFile],
-        uuid_expediente,
+        stored_files: list[StoredFile],
+        uuid_expediente: UUID,
         id_propuesta: int,
         id_propuesta_solicitante: int,
-        tipo_documento: str,
-    ) -> list[StoredFile]:
-        if not files:
-            return []
-
-        tipo = self.tipo_documento_repository.get_by_name(tipo_documento)
-        if tipo is None:
-            raise ValueError(
-                f"No existe el tipo de documento '{tipo_documento}' en la base de datos."
-            )
-
-        stored_files: list[StoredFile] = []
-        
+        tipo_documento: TipoDocumento,
+    ) -> None:
         for upload in files:
             stored_file = self.storage_service.save_upload(
                 upload=upload,
@@ -194,19 +205,17 @@ class ProposalService:
                 {
                     "uuid_archivo": stored_file.uuid_archivo,
                     "id_propuesta": id_propuesta,
-                    "id_tipo_documento": tipo.id_tipo_documento,
+                    "id_tipo_documento": tipo_documento.id_tipo_documento,
                     "id_propuesta_solicitante": id_propuesta_solicitante,
                     "ruta_archivo": stored_file.ruta_archivo,
                     "nombre_original": stored_file.nombre_original,
                     "tipo_mime": stored_file.tipo_mime,
                     "tamano_bytes": stored_file.tamano_bytes,
                     "hash_sha256": stored_file.hash_sha256,
-                    "estado_carga": "cargado",
+                    "estado_carga": EstadoCarga.CARGADO.value,
                     "fecha_carga": datetime.now(timezone.utc),
                 }
             )
-
-        return stored_files
 
     def list_review(self) -> list[ProposalReviewItem]:
         """Devuelve las propuestas con la información de la vista de revisión."""
@@ -218,22 +227,17 @@ class ProposalService:
         documents = [
             document
             for document in propuesta.documentos
-            if (
-                document.es_activo
-                and document.es_vigente
-                and document.fecha_eliminacion is None
-                and document.estado_carga == "cargado"
-            )
+            if self._is_visible_document(document)
         ]
         proposal_documents = [
             document
             for document in documents
-            if document.tipo_documento.nombre == self.PROPOSAL_DOCUMENT_TYPE
+            if document.tipo_documento.nombre == TipoDocumentoNombre.PROPUESTA.value
         ]
         faculty_documents = [
             document
             for document in documents
-            if document.tipo_documento.nombre == self.FACULTY_DOCUMENT_TYPE
+            if document.tipo_documento.nombre == TipoDocumentoNombre.FACULTAD.value
         ]
 
         return ProposalReviewItem(
@@ -266,6 +270,15 @@ class ProposalService:
         )
 
     @staticmethod
+    def _is_visible_document(document: Documento) -> bool:
+        return (
+            document.es_activo
+            and document.es_vigente
+            and document.fecha_eliminacion is None
+            and document.estado_carga == EstadoCarga.CARGADO.value
+        )
+
+    @staticmethod
     def _is_data_complete(
         propuesta: Propuesta,
         solicitante,
@@ -294,23 +307,28 @@ class ProposalService:
             key=lambda item: (item.created_at, item.id_historial),
         )
 
-        h = history[0] if history else None
-        if h is not None:
-            print(h.usuario)
-
-        if not history:
-            return []
-
         return [
             ProposalReviewHistory(
-                id=f"h-{propuesta.id_propuesta}-{item.id_historial}",
-                kind="decision",
+                id=self._history_id(propuesta.id_propuesta, item.id_historial),
+                kind=HistoryKind.DECISION.value,
                 text=self._history_text(item),
-                author= item.usuario.nombre if item.usuario is not None else "Postulante",
+                author=self._history_author(item),
                 date=format_history_date(item.created_at),
             )
             for item in history
         ]
+
+    @staticmethod
+    def _history_id(id_propuesta: int, id_historial: int) -> str:
+        return f"h-{id_propuesta}-{id_historial}"
+
+    @staticmethod
+    def _history_author(item) -> str:
+        if item.usuario is not None:
+            return item.usuario.nombre
+        if item.solicitante is not None:
+            return item.solicitante.nombre_contacto
+        return AUTOR_SISTEMA
 
     @staticmethod
     def _history_text(item) -> str:
@@ -322,4 +340,3 @@ class ProposalService:
             f'Propuesta cambió de "{item.estado_anterior.nombre}" '
             f'a "{item.estado_nuevo.nombre}".'
         )
-    

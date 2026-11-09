@@ -5,11 +5,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
-from app.models import (
-    Documento,
-    HistorialEstado,
-    Propuesta
-)
+from app.models import Documento, HistorialEstado, Propuesta
 
 
 class PropuestaRepository:
@@ -62,6 +58,9 @@ class PropuestaRepository:
                 ),
                 selectinload(Propuesta.historial_estados).joinedload(
                     HistorialEstado.usuario
+                ),
+                selectinload(Propuesta.historial_estados).joinedload(
+                    HistorialEstado.solicitante
                 ),
             )
             .order_by(Propuesta.created_at.desc(), Propuesta.id_propuesta.desc())
