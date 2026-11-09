@@ -10,6 +10,8 @@ class UserResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+    id_usuario: int
     nombre: str
     correo: str
+    es_activo: bool
     roles: list[RolResponse] = Field(default_factory=list)

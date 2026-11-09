@@ -26,8 +26,10 @@ def get_user_by_id(
         )
 
     return UserResponse(
+        id_usuario=user.id_usuario,
         nombre=user.nombre,
         correo=user.correo,
+        es_activo=user.es_activo,
         roles=[
             RolResponse.model_validate(usuario_rol.rol)
             for usuario_rol in user.usuario_roles
