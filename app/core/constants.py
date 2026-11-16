@@ -24,6 +24,19 @@ class EstadoCarga(StrEnum):
     FALLIDO = "fallido"
 
 
+# Tipos MIME que el navegador puede mostrar inline sin riesgo de ejecutar
+# contenido activo (HTML, SVG, etc.). Cualquier otro tipo se fuerza a descarga.
+INLINE_MIME_TYPES = frozenset(
+    {
+        "application/pdf",
+        "image/png",
+        "image/jpeg",
+        "image/webp",
+        "image/gif",
+    }
+)
+
+
 class HistoryKind(StrEnum):
     DECISION = "decision"
 

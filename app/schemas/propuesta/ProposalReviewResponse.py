@@ -1,11 +1,21 @@
 """Schemas para la vista de revisión de propuestas."""
 
+from uuid import UUID
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
 class ProposalReviewDocument(BaseModel):
     name: str
     size: str
+    id_documento: int
+    uuid_archivo: UUID
+    nombre_original: str
+    tipo_mime: str
+    tamano_bytes: int
+    numero_version: int
+    es_vigente: bool
+    tipo_documento: str
 
 
 class ProposalReviewHistory(BaseModel):

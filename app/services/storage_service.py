@@ -2,14 +2,17 @@
 
 from dataclasses import dataclass
 from hashlib import sha256
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import BinaryIO
 from uuid import UUID, uuid4
 
 from fastapi import UploadFile
 
 from app.core.config import settings
+from app.core.exceptions import DocumentNotFoundError
 
+# Prefijo con el que se guarda ruta_archivo en la base de datos.
+STORAGE_PATH_PREFIX = "storages"
 
 MIME_EXTENSIONS = {
     "application/pdf": ".pdf",
@@ -76,7 +79,7 @@ class StorageService:
         extension = self._resolve_extension(upload)
         stored_name = f"{uuid_archivo}{extension}"
         relative_path = (
-            Path("storages")
+            Path(STORAGE_PATH_PREFIX)
             / str(uuid_expediente)
             / stored_name
         )
@@ -106,6 +109,36 @@ class StorageService:
             hash_sha256=file_hash.hexdigest(),
             absolute_path=final_path,
         )
+
+    def resolve_stored_path(self, ruta_archivo: str) -> Path:
+        """Resuelve ruta_archivo dentro de storage_root y verifica que exista.
+
+        ruta_archivo se guarda como ``storages/{uuid_expediente}/{archivo}``;
+        el prefijo ``storages`` se descarta y el resto se resuelve contra
+        ``storage_root``, para que funcione aunque STORAGE_ROOT sea otra carpeta.
+
+        Lanza DocumentNotFoundError si la ruta sale de storage_root (path
+        traversal, rutas absolutas, symlinks) o si el archivo no existe.
+        """
+        parts = PurePosixPath(ruta_archivo.replace("\\", "/")).parts
+        if parts and parts[0] == STORAGE_PATH_PREFIX:
+            parts = parts[1:]
+        if not parts:
+            raise DocumentNotFoundError("Ruta de archivo vacía.")
+
+        try:
+            root = self.storage_root.resolve()
+            candidate = root.joinpath(*parts).resolve()
+            is_inside = candidate != root and candidate.is_relative_to(root)
+            is_file = is_inside and candidate.is_file()
+        except (OSError, ValueError) as exc:
+            raise DocumentNotFoundError("Ruta de archivo inválida.") from exc
+
+        if not is_inside:
+            raise DocumentNotFoundError("La ruta queda fuera del almacenamiento.")
+        if not is_file:
+            raise DocumentNotFoundError("El archivo no existe en el almacenamiento.")
+        return candidate
 
     @staticmethod
     def _resolve_extension(upload: UploadFile) -> str:

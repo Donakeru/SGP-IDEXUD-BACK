@@ -1,11 +1,13 @@
 """Endpoints relacionados con propuestas."""
 
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import ConfigurationError
+from app.core.exceptions import ConfigurationError, DocumentNotFoundError
 from app.dependencies import get_db
 from app.schemas.propuesta import (
     CreateProposalDto,
@@ -24,6 +26,39 @@ def review_proposals(
 ) -> list[ProposalReviewItem]:
     """Devuelve las propuestas con la información para revisión."""
     return ProposalService(db).list_review()
+
+
+@router.get(
+    "/documents/{uuid_archivo}",
+    response_class=FileResponse,
+    responses={status.HTTP_404_NOT_FOUND: {"description": "Documento no encontrado"}},
+)
+def get_document(
+    uuid_archivo: UUID,
+    download: bool = Query(default=False),
+    db: Session = Depends(get_db),
+) -> FileResponse:
+    """Devuelve el archivo de un documento adjunto.
+
+    Con ``download=false`` se muestra inline, pero solo PDF e imágenes
+    (png, jpeg, webp, gif); cualquier otro tipo se envía como descarga.
+    """
+    try:
+        document = ProposalService(db).get_document_file(uuid_archivo)
+    except DocumentNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Documento no encontrado.",
+        ) from exc
+
+    disposition = "inline" if not download and document.inline_allowed else "attachment"
+    return FileResponse(
+        path=document.path,
+        media_type=document.media_type,
+        filename=document.filename,
+        content_disposition_type=disposition,
+        headers={"X-Content-Type-Options": "nosniff"},
+    )
 
 
 @router.get("/", response_model=ProposalListResponse)

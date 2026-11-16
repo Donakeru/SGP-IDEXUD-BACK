@@ -1,6 +1,8 @@
 """Servicio para registrar propuestas, solicitantes y documentos."""
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path, PureWindowsPath
 from uuid import UUID
 
 from fastapi import UploadFile
@@ -8,13 +10,14 @@ from sqlalchemy.orm import Session
 
 from app.core.constants import (
     AUTOR_SISTEMA,
+    INLINE_MIME_TYPES,
     MOTIVO_REGISTRO_INICIAL,
     EstadoCarga,
     EstadoPropuestaNombre,
     HistoryKind,
     TipoDocumentoNombre,
 )
-from app.core.exceptions import ConfigurationError
+from app.core.exceptions import ConfigurationError, DocumentNotFoundError
 from app.models.documento import Documento
 from app.models.propuesta import Propuesta
 from app.models.tipo_documento import TipoDocumento
@@ -41,6 +44,16 @@ from app.utils import (
     format_file_size,
     format_history_date,
 )
+
+
+@dataclass(frozen=True)
+class DocumentFile:
+    """Archivo de un documento listo para enviarse al cliente."""
+
+    path: Path
+    filename: str
+    media_type: str
+    inline_allowed: bool
 
 
 class ProposalService:
@@ -217,6 +230,33 @@ class ProposalService:
                 }
             )
 
+    def get_document_file(self, uuid_archivo: UUID) -> DocumentFile:
+        """Busca un documento por uuid_archivo y resuelve su archivo en disco.
+
+        Lanza DocumentNotFoundError si no existe, no está activo, no está
+        cargado, fue eliminado o el archivo no está disponible en disco.
+        """
+        documento = self.documento_repository.get_by_uuid(uuid_archivo)
+        if (
+            documento is None
+            or not documento.es_activo
+            or documento.fecha_eliminacion is not None
+            or documento.estado_carga != EstadoCarga.CARGADO.value
+        ):
+            raise DocumentNotFoundError(f"Documento {uuid_archivo} no disponible.")
+
+        path = self.storage_service.resolve_stored_path(documento.ruta_archivo)
+        base_mime = documento.tipo_mime.split(";")[0].strip().lower()
+        # Solo el nombre, sin directorios, para el encabezado Content-Disposition.
+        filename = PureWindowsPath(documento.nombre_original).name or str(uuid_archivo)
+
+        return DocumentFile(
+            path=path,
+            filename=filename,
+            media_type=documento.tipo_mime,
+            inline_allowed=base_mime in INLINE_MIME_TYPES,
+        )
+
     def list_review(self) -> list[ProposalReviewItem]:
         """Devuelve las propuestas con la información de la vista de revisión."""
         proposals = self.propuesta_repository.get_all_for_review()
@@ -263,6 +303,14 @@ class ProposalService:
                 ProposalReviewDocument(
                     name=document.nombre_original,
                     size=format_file_size(document.tamano_bytes),
+                    id_documento=document.id_documento,
+                    uuid_archivo=document.uuid_archivo,
+                    nombre_original=document.nombre_original,
+                    tipo_mime=document.tipo_mime,
+                    tamano_bytes=document.tamano_bytes,
+                    numero_version=document.numero_version,
+                    es_vigente=document.es_vigente,
+                    tipo_documento=document.tipo_documento.nombre,
                 )
                 for document in documents
             ],
