@@ -15,9 +15,18 @@ from app.core.constants import (
     EstadoCarga,
     EstadoPropuestaNombre,
     HistoryKind,
+    RolCodigo,
     TipoDocumentoNombre,
 )
-from app.core.exceptions import ConfigurationError, DocumentNotFoundError
+from app.core.exceptions import (
+    ConfigurationError,
+    DocumentNotFoundError,
+    InvalidProposalTransitionError,
+    InvalidTransitionActorError,
+    ProposalNotFoundError,
+    ProposalStateNotFoundError,
+    UnsupportedReviewRoleError,
+)
 from app.models.documento import Documento
 from app.models.propuesta import Propuesta
 from app.models.tipo_documento import TipoDocumento
@@ -28,6 +37,7 @@ from app.repositories import (
     PropuestaRepository,
     PropuestaSolicitanteRepository,
     TipoDocumentoRepository,
+    UsuarioRepository,
 )
 from app.schemas.propuesta import (
     CreateProposalDto,
@@ -56,8 +66,28 @@ class DocumentFile:
     inline_allowed: bool
 
 
+@dataclass(frozen=True)
+class ProposalStateChangeResult:
+    """Resultado de una transición de estado confirmada."""
+
+    propuesta: Propuesta
+    estado_anterior: str
+    estado_nuevo: str
+    motivo: str | None
+
+
 class ProposalService:
     """Coordina el registro transaccional de una propuesta."""
+
+    REVIEW_STATES_BY_ROLE: dict[str, tuple[str, ...]] = {
+        RolCodigo.ASISTENTE_DIRECCION.value: (
+            EstadoPropuestaNombre.REGISTRADO.value,
+            EstadoPropuestaNombre.RECHAZADO.value,
+        ),
+        RolCodigo.DIRECCION.value: (
+            EstadoPropuestaNombre.EN_REVISION_DIRECCION.value,
+        ),
+    }
 
     def __init__(self, db: Session) -> None:
         self.db = db
@@ -67,6 +97,7 @@ class ProposalService:
         self.solicitante_repository = PropuestaSolicitanteRepository(db)
         self.documento_repository = DocumentoRepository(db)
         self.tipo_documento_repository = TipoDocumentoRepository(db)
+        self.usuario_repository = UsuarioRepository(db)
         self.storage_service = StorageService()
 
     def list_proposals(self, offset: int, limit: int) -> ProposalListResponse:
@@ -74,11 +105,13 @@ class ProposalService:
         proposals, total = self.propuesta_repository.get_page(
             offset=offset,
             limit=limit,
+            state_name=EstadoPropuestaNombre.ACEPTADO.value,
         )
 
         items = [
             ProposalListItem(
                 id_propuesta=propuesta.id_propuesta,
+                uuid_expediente=propuesta.uuid_expediente,
                 nombre=propuesta.nombre,
                 created_at=propuesta.created_at,
                 estado=propuesta.estado.nombre,
@@ -240,6 +273,7 @@ class ProposalService:
         if (
             documento is None
             or not documento.es_activo
+            or documento.es_vigente is False
             or documento.fecha_eliminacion is not None
             or documento.estado_carga != EstadoCarga.CARGADO.value
         ):
@@ -257,9 +291,83 @@ class ProposalService:
             inline_allowed=base_mime in INLINE_MIME_TYPES,
         )
 
-    def list_review(self) -> list[ProposalReviewItem]:
-        """Devuelve las propuestas con la información de la vista de revisión."""
-        proposals = self.propuesta_repository.get_all_for_review()
+    def change_proposal_status(
+        self,
+        uuid_expediente: UUID,
+        estado_destino: str,
+        id_usuario: int,
+        motivo: str | None = None,
+    ) -> ProposalStateChangeResult:
+        """Cambia el estado permitido y registra el evento en el historial."""
+        target_name = estado_destino.strip()
+        propuesta = self.propuesta_repository.get_by_uuid_for_update(
+            uuid_expediente
+        )
+        if propuesta is None:
+            raise ProposalNotFoundError(
+                f"No existe una propuesta para el expediente '{uuid_expediente}'."
+            )
+
+        current_name = propuesta.estado.nombre
+        current_state_id = propuesta.id_propuesta_estado
+        estado_nuevo = self.estado_repository.get_by_name(target_name)
+        if estado_nuevo is None:
+            raise ProposalStateNotFoundError(
+                f"No existe el estado destino '{target_name}' en la base de datos."
+            )
+
+        if current_state_id == estado_nuevo.id_propuesta_estado:
+            raise InvalidProposalTransitionError(
+                f"La propuesta ya se encuentra en el estado '{current_name}'."
+            )
+
+        usuario = self.usuario_repository.get_by_id(id_usuario)
+        if usuario is None or not usuario.es_activo:
+            raise InvalidTransitionActorError(
+                "El usuario que ejecuta la transición no existe o está inactivo."
+            )
+
+        clean_reason = motivo.strip() if motivo and motivo.strip() else None
+        try:
+            propuesta.id_propuesta_estado = estado_nuevo.id_propuesta_estado
+            propuesta.estado = estado_nuevo
+            propuesta.updated_at = datetime.now(timezone.utc)
+            self.db.flush()
+
+            self.historial_estado_repository.add(
+                {
+                    "id_propuesta": propuesta.id_propuesta,
+                    "id_estado_anterior": current_state_id,
+                    "id_estado_nuevo": estado_nuevo.id_propuesta_estado,
+                    "id_usuario": id_usuario,
+                    "id_propuesta_solicitante": None,
+                    "motivo": clean_reason,
+                }
+            )
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
+
+        return ProposalStateChangeResult(
+            propuesta=propuesta,
+            estado_anterior=current_name,
+            estado_nuevo=target_name,
+            motivo=clean_reason,
+        )
+
+    def list_review(self, rol: str) -> list[ProposalReviewItem]:
+        """Devuelve la bandeja de revisión correspondiente al rol."""
+        role_code = rol.strip().lower()
+        state_names = self.REVIEW_STATES_BY_ROLE.get(role_code)
+        if state_names is None:
+            raise UnsupportedReviewRoleError(
+                f"No existe una bandeja configurada para el rol '{rol}'."
+            )
+
+        proposals = self.propuesta_repository.get_all_for_review(
+            state_names=state_names,
+        )
         return [self._to_review_item(proposal) for proposal in proposals]
 
     def _to_review_item(self, propuesta: Propuesta) -> ProposalReviewItem:
@@ -282,6 +390,7 @@ class ProposalService:
 
         return ProposalReviewItem(
             id=str(propuesta.id_propuesta),
+            uuid_expediente=propuesta.uuid_expediente,
             title=propuesta.nombre,
             entity=solicitante.nombre_organizacion if solicitante else None,
             applicantType=solicitante.tipo_solicitante if solicitante else None,

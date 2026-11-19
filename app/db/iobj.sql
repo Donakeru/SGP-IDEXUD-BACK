@@ -364,7 +364,8 @@ INSERT INTO tsgp_rol (codigo, nombre) VALUES
 
 INSERT INTO tsgp_propuesta_estado (nombre, descripcion, es_final) VALUES
     ('Registrado', 'Propuesta registrada en el sistema.', FALSE),
-    ('Aceptado', 'Propuesta aceptada para continuar con el proceso.', FALSE),
+    ('En Revision por Direccion', 'Propuesta Remitida a Direccion.', FALSE),
+    ('Aceptado', 'Propuesta aceptada por Direccion para continuar con el proceso.', FALSE),
     ('Preaprobado', 'Propuesta con concepto de preaprobación.', FALSE),
     ('Aprobado', 'Propuesta aprobada definitivamente.', TRUE),
     ('Rechazado', 'Propuesta rechazada.', TRUE)

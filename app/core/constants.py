@@ -11,6 +11,14 @@ except ImportError:  # pragma: no cover - compatibilidad con Python < 3.11
 
 class EstadoPropuestaNombre(StrEnum):
     REGISTRADO = "Registrado"
+    ACEPTADO = "Aceptado"
+    RECHAZADO = "Rechazado"
+    EN_REVISION_DIRECCION = "En Revision por Direccion"
+
+
+class RolCodigo(StrEnum):
+    ASISTENTE_DIRECCION = "asistente_direccion"
+    DIRECCION = "direccion"
 
 
 class TipoDocumentoNombre(StrEnum):

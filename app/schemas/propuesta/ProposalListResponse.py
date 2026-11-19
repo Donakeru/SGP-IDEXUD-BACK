@@ -1,6 +1,7 @@
 """DTOs para el listado paginado de propuestas."""
 
 from datetime import datetime
+from uuid import UUID
 
 from pydantic import BaseModel
 
@@ -9,6 +10,7 @@ class ProposalListItem(BaseModel):
     """Fila de propuesta para la tabla del frontend."""
 
     id_propuesta: int
+    uuid_expediente: UUID
     nombre: str
     created_at: datetime
     estado: str

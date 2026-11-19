@@ -6,10 +6,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class ProposalReviewDocument(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     name: str
     size: str
     id_documento: int
-    uuid_archivo: UUID
+    uuid_archivo: UUID = Field(alias="uuidArchivo")
     nombre_original: str
     tipo_mime: str
     tamano_bytes: int
@@ -30,6 +32,7 @@ class ProposalReviewItem(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     id: str
+    uuid_expediente: UUID = Field(alias="uuidExpediente")
     title: str
     entity: str | None
     applicant_type: str | None = Field(alias="applicantType")

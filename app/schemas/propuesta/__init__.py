@@ -11,6 +11,10 @@ from app.schemas.propuesta.ProposalReviewResponse import (
     ProposalReviewHistory,
     ProposalReviewItem,
 )
+from app.schemas.propuesta.ProposalStateChange import (
+    ProposalStateChangeRequest,
+    ProposalStateChangeResponse,
+)
 
 __all__ = [
     "CreateProposalDto",
@@ -20,4 +24,6 @@ __all__ = [
     "ProposalReviewDocument",
     "ProposalReviewHistory",
     "ProposalReviewItem",
+    "ProposalStateChangeRequest",
+    "ProposalStateChangeResponse",
 ]

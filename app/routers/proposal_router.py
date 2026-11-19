@@ -7,13 +7,23 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import ConfigurationError, DocumentNotFoundError
+from app.core.exceptions import (
+    ConfigurationError,
+    DocumentNotFoundError,
+    InvalidProposalTransitionError,
+    InvalidTransitionActorError,
+    ProposalNotFoundError,
+    ProposalStateNotFoundError,
+    UnsupportedReviewRoleError,
+)
 from app.dependencies import get_db
 from app.schemas.propuesta import (
     CreateProposalDto,
     ProposalListResponse,
     ProposalResponse,
     ProposalReviewItem,
+    ProposalStateChangeRequest,
+    ProposalStateChangeResponse,
 )
 from app.services.proposal_service import ProposalService
 
@@ -22,10 +32,73 @@ router = APIRouter(prefix="/proposal", tags=["proposal"])
 
 @router.get("/review", response_model=list[ProposalReviewItem])
 def review_proposals(
+    rol: str = Query(
+        ...,
+        min_length=1,
+        description="Código del rol de la bandeja de revisión.",
+    ),
     db: Session = Depends(get_db),
 ) -> list[ProposalReviewItem]:
-    """Devuelve las propuestas con la información para revisión."""
-    return ProposalService(db).list_review()
+    """Devuelve las propuestas filtradas por la bandeja del rol."""
+    try:
+        return ProposalService(db).list_review(rol=rol)
+    except UnsupportedReviewRoleError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
+@router.patch(
+    "/{uuid_expediente}/status",
+    response_model=ProposalStateChangeResponse,
+)
+def change_proposal_status(
+    uuid_expediente: UUID,
+    data: ProposalStateChangeRequest,
+    db: Session = Depends(get_db),
+) -> ProposalStateChangeResponse:
+    """Cambia el estado de una propuesta y registra el historial."""
+    try:
+        result = ProposalService(db).change_proposal_status(
+            uuid_expediente=uuid_expediente,
+            estado_destino=data.estado_destino,
+            id_usuario=data.id_usuario,
+            motivo=data.motivo,
+        )
+    except ProposalNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Propuesta   no encontrada.",
+        ) from exc
+    except InvalidProposalTransitionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except InvalidTransitionActorError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except ProposalStateNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except ConfigurationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        ) from exc
+
+    return ProposalStateChangeResponse(
+        uuid_expediente=result.propuesta.uuid_expediente,
+        estado_anterior=result.estado_anterior,
+        estado_nuevo=result.estado_nuevo,
+        motivo=result.motivo,
+        mensaje="Estado de la propuesta actualizado correctamente.",
+    )
 
 
 @router.get(
