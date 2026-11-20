@@ -3,22 +3,33 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import (
     ConfigurationError,
     DocumentNotFoundError,
+    InvalidCommentCursorError,
+    InvalidCommentError,
+    InvalidDocumentTypeError,
+    InvalidDocumentUploaderError,
     InvalidProposalTransitionError,
     InvalidTransitionActorError,
+    InvalidUploadError,
     ProposalNotFoundError,
     ProposalStateNotFoundError,
     UnsupportedReviewRoleError,
+    UploadTooLargeError,
 )
 from app.dependencies import get_db
 from app.schemas.propuesta import (
     CreateProposalDto,
+    ProposalComment,
+    ProposalCommentRequest,
+    ProposalComments,
+    ProposalDetailResponse,
+    ProposalDocumentUploadResponse,
     ProposalListResponse,
     ProposalResponse,
     ProposalReviewItem,
@@ -45,6 +56,124 @@ def review_proposals(
     except UnsupportedReviewRoleError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
+@router.get(
+    "/{uuid_expediente}/detail",
+    response_model=ProposalDetailResponse,
+)
+def get_proposal_detail(
+    uuid_expediente: UUID,
+    db: Session = Depends(get_db),
+) -> ProposalDetailResponse:
+    """Devuelve el detalle de revisión y los tres comentarios más recientes."""
+    try:
+        return ProposalService(db).get_proposal_detail(uuid_expediente)
+    except ProposalNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Propuesta no encontrada.",
+        ) from exc
+
+
+@router.get(
+    "/{uuid_expediente}/comments",
+    response_model=ProposalComments,
+)
+def get_proposal_comments(
+    uuid_expediente: UUID,
+    cursor: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+) -> ProposalComments:
+    """Devuelve una página de tres comentarios para carga incremental."""
+    try:
+        return ProposalService(db).list_comments(uuid_expediente, cursor=cursor)
+    except ProposalNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Propuesta no encontrada.",
+        ) from exc
+    except InvalidCommentCursorError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
+@router.post(
+    "/{uuid_expediente}/comments",
+    status_code=status.HTTP_201_CREATED,
+    response_model=ProposalComment,
+)
+def create_proposal_comment(
+    uuid_expediente: UUID,
+    data: ProposalCommentRequest,
+    db: Session = Depends(get_db),
+) -> ProposalComment:
+    """Registra un comentario en la propuesta."""
+    try:
+        return ProposalService(db).create_comment(
+            uuid_expediente=uuid_expediente,
+            content=data.content,
+            id_usuario=data.id_usuario,
+        )
+    except ProposalNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Propuesta no encontrada.",
+        ) from exc
+    except InvalidCommentError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
+@router.post(
+    "/{uuid_expediente}/documents",
+    status_code=status.HTTP_201_CREATED,
+    response_model=ProposalDocumentUploadResponse,
+)
+def upload_proposal_document(
+    uuid_expediente: UUID,
+    file: UploadFile = File(...),
+    id_usuario: int = Form(..., alias="idUsuario", gt=0),
+    tipo_documento: str = Form(..., alias="tipoDocumento"),
+    db: Session = Depends(get_db),
+) -> ProposalDocumentUploadResponse:
+    """Carga un documento a una propuesta por expediente para un usuario activo."""
+    try:
+        return ProposalService(db).upload_document(
+            uuid_expediente=uuid_expediente,
+            upload=file,
+            id_usuario=id_usuario,
+            tipo_documento=tipo_documento,
+        )
+    except ProposalNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Propuesta no encontrada.",
+        ) from exc
+    except (InvalidDocumentTypeError, InvalidDocumentUploaderError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except UploadTooLargeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=str(exc),
+        ) from exc
+    except InvalidUploadError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except ConfigurationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(exc),
         ) from exc
 
@@ -156,6 +285,16 @@ def create_new_proposal(
     """Registra la propuesta, el solicitante y sus archivos."""
     try:
         propuesta = ProposalService(db).create_proposal(data=data)
+    except UploadTooLargeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=str(exc),
+        ) from exc
+    except InvalidUploadError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
     except ConfigurationError as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

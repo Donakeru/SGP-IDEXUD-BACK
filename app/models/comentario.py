@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Identity, Text, text
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Identity, Index, Text, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -17,6 +17,14 @@ if TYPE_CHECKING:
 
 class Comentario(Base):
     __tablename__ = "tsgp_comentario"
+    __table_args__ = (
+        Index(
+            "idx_comentario_propuesta_created",
+            "id_propuesta",
+            "created_at",
+            "id_comentario",
+        ),
+    )
 
     id_comentario: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
     id_propuesta: Mapped[int] = mapped_column(

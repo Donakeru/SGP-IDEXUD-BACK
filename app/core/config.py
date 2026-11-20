@@ -23,6 +23,11 @@ class Settings:
     storage_root: Path = field(
         default_factory=lambda: PROJECT_ROOT / (getenv("STORAGE_ROOT") or "storages")
     )
+    max_upload_size_mb: int = int(getenv("MAX_UPLOAD_SIZE_MB") or "10")
+
+    @property
+    def max_upload_size_bytes(self) -> int:
+        return self.max_upload_size_mb * 1024 * 1024
 
     def get_database_url(self) -> URL:
 

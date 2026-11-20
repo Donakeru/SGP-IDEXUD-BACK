@@ -21,9 +21,8 @@ class ProposalReviewDocument(BaseModel):
 
 
 class ProposalReviewHistory(BaseModel):
-    id: str
-    kind: str
     text: str
+    subject: str | None
     author: str
     date: str
 

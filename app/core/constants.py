@@ -45,10 +45,6 @@ INLINE_MIME_TYPES = frozenset(
 )
 
 
-class HistoryKind(StrEnum):
-    DECISION = "decision"
-
-
 AUTOR_SOLICITANTE = "Postulante"
 AUTOR_SISTEMA = "Sistema"
 MOTIVO_REGISTRO_INICIAL = "El Postulante registró la propuesta en sistema."

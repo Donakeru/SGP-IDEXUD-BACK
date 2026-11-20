@@ -27,3 +27,27 @@ class DocumentNotFoundError(Exception):
 
 class UnsupportedReviewRoleError(Exception):
     """Indica que el rol no tiene una bandeja de revisión configurada."""
+
+
+class InvalidCommentError(Exception):
+    """Indica que el contenido o autor de un comentario no es válido."""
+
+
+class InvalidCommentCursorError(Exception):
+    """Indica que el cursor de comentarios no tiene un formato válido."""
+
+
+class InvalidUploadError(Exception):
+    """Indica que un archivo no cumple los formatos permitidos."""
+
+
+class UploadTooLargeError(Exception):
+    """Indica que un archivo supera el tamaño máximo configurado."""
+
+
+class InvalidDocumentTypeError(Exception):
+    """Indica que el tipo de documento solicitado no está permitido."""
+
+
+class InvalidDocumentUploaderError(Exception):
+    """Indica que el usuario que carga el documento no es válido."""

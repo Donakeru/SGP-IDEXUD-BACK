@@ -1,6 +1,12 @@
 """Schemas de propuestas."""
 
 from app.schemas.propuesta.CreateProposalDto import CreateProposalDto
+from app.schemas.propuesta.ProposalComment import ProposalComment, ProposalComments
+from app.schemas.propuesta.ProposalCommentRequest import ProposalCommentRequest
+from app.schemas.propuesta.ProposalDetailResponse import ProposalDetailResponse
+from app.schemas.propuesta.ProposalDocumentUploadResponse import (
+    ProposalDocumentUploadResponse,
+)
 from app.schemas.propuesta.ProposalListResponse import (
     ProposalListItem,
     ProposalListResponse,
@@ -18,6 +24,11 @@ from app.schemas.propuesta.ProposalStateChange import (
 
 __all__ = [
     "CreateProposalDto",
+    "ProposalComment",
+    "ProposalComments",
+    "ProposalCommentRequest",
+    "ProposalDetailResponse",
+    "ProposalDocumentUploadResponse",
     "ProposalListItem",
     "ProposalListResponse",
     "ProposalResponse",

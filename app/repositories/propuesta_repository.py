@@ -29,6 +29,38 @@ class PropuestaRepository:
         )
         return self.db.scalar(statement)
 
+    def get_by_uuid(self, uuid_expediente: UUID) -> Propuesta | None:
+        """Obtiene una propuesta por expediente sin bloquearla."""
+        statement = select(Propuesta).where(
+            Propuesta.uuid_expediente == uuid_expediente
+        )
+        return self.db.scalar(statement)
+
+    def get_by_uuid_for_detail(self, uuid_expediente: UUID) -> Propuesta | None:
+        """Obtiene una propuesta con las relaciones necesarias para revisión."""
+        statement = (
+            select(Propuesta)
+            .where(Propuesta.uuid_expediente == uuid_expediente)
+            .options(
+                joinedload(Propuesta.estado),
+                joinedload(Propuesta.solicitante),
+                selectinload(Propuesta.documentos).joinedload(Documento.tipo_documento),
+                selectinload(Propuesta.historial_estados).joinedload(
+                    HistorialEstado.estado_anterior
+                ),
+                selectinload(Propuesta.historial_estados).joinedload(
+                    HistorialEstado.estado_nuevo
+                ),
+                selectinload(Propuesta.historial_estados).joinedload(
+                    HistorialEstado.usuario
+                ),
+                selectinload(Propuesta.historial_estados).joinedload(
+                    HistorialEstado.solicitante
+                ),
+            )
+        )
+        return self.db.scalars(statement).unique().one_or_none()
+
     def get_page(
         self,
         offset: int,

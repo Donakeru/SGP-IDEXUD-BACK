@@ -340,6 +340,8 @@ CREATE INDEX idx_historial_usuario ON tsgp_historial_estado(id_usuario);
 
 -- Comentarios
 CREATE INDEX idx_comentario_propuesta ON tsgp_comentario(id_propuesta);
+CREATE INDEX idx_comentario_propuesta_created
+    ON tsgp_comentario(id_propuesta, created_at DESC, id_comentario DESC);
 CREATE INDEX idx_comentario_usuario ON tsgp_comentario(id_usuario);
 
 -- Flujo de Transiciones

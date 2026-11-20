@@ -1,5 +1,8 @@
 """Servicio para registrar propuestas, solicitantes y documentos."""
 
+import base64
+import binascii
+import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path, PureWindowsPath
@@ -14,23 +17,28 @@ from app.core.constants import (
     MOTIVO_REGISTRO_INICIAL,
     EstadoCarga,
     EstadoPropuestaNombre,
-    HistoryKind,
     RolCodigo,
     TipoDocumentoNombre,
 )
 from app.core.exceptions import (
     ConfigurationError,
     DocumentNotFoundError,
+    InvalidCommentCursorError,
+    InvalidCommentError,
+    InvalidDocumentTypeError,
+    InvalidDocumentUploaderError,
     InvalidProposalTransitionError,
     InvalidTransitionActorError,
     ProposalNotFoundError,
     ProposalStateNotFoundError,
     UnsupportedReviewRoleError,
 )
+from app.models.comentario import Comentario
 from app.models.documento import Documento
 from app.models.propuesta import Propuesta
 from app.models.tipo_documento import TipoDocumento
 from app.repositories import (
+    ComentarioRepository,
     DocumentoRepository,
     HistorialEstadoRepository,
     PropuestaEstadoRepository,
@@ -41,6 +49,10 @@ from app.repositories import (
 )
 from app.schemas.propuesta import (
     CreateProposalDto,
+    ProposalComment,
+    ProposalComments,
+    ProposalDetailResponse,
+    ProposalDocumentUploadResponse,
     ProposalListItem,
     ProposalListResponse,
     ProposalReviewDocument,
@@ -92,6 +104,7 @@ class ProposalService:
     def __init__(self, db: Session) -> None:
         self.db = db
         self.propuesta_repository = PropuestaRepository(db)
+        self.comentario_repository = ComentarioRepository(db)
         self.historial_estado_repository = HistorialEstadoRepository(db)
         self.estado_repository = PropuestaEstadoRepository(db)
         self.solicitante_repository = PropuestaSolicitanteRepository(db)
@@ -263,6 +276,84 @@ class ProposalService:
                 }
             )
 
+    def upload_document(
+        self,
+        uuid_expediente: UUID,
+        upload: UploadFile,
+        id_usuario: int,
+        tipo_documento: str,
+    ) -> ProposalDocumentUploadResponse:
+        """Carga un documento de un usuario activo a una propuesta existente."""
+        propuesta = self.propuesta_repository.get_by_uuid_for_update(uuid_expediente)
+        if propuesta is None:
+            raise ProposalNotFoundError(
+                f"No existe una propuesta para el expediente '{uuid_expediente}'."
+            )
+
+        usuario = self.usuario_repository.get_by_id(id_usuario)
+        if usuario is None or not usuario.es_activo:
+            raise InvalidDocumentUploaderError(
+                "El usuario que carga el documento no existe o está inactivo."
+            )
+
+        try:
+            document_type_name = TipoDocumentoNombre(tipo_documento.strip().lower())
+        except ValueError as exc:
+            raise InvalidDocumentTypeError(
+                "El tipo de documento debe ser 'propuesta' o 'facultad'."
+            ) from exc
+        document_type = self._get_document_type(document_type_name)
+
+        stored_files: list[StoredFile] = []
+        try:
+            stored_file = self.storage_service.save_upload(
+                upload=upload,
+                uuid_expediente=uuid_expediente,
+            )
+            stored_files.append(stored_file)
+
+            documento = self.documento_repository.add(
+                {
+                    "uuid_archivo": stored_file.uuid_archivo,
+                    "id_propuesta": propuesta.id_propuesta,
+                    "id_tipo_documento": document_type.id_tipo_documento,
+                    "id_usuario": id_usuario,
+                    "id_propuesta_solicitante": None,
+                    "ruta_archivo": stored_file.ruta_archivo,
+                    "nombre_original": stored_file.nombre_original,
+                    "tipo_mime": stored_file.tipo_mime,
+                    "tamano_bytes": stored_file.tamano_bytes,
+                    "hash_sha256": stored_file.hash_sha256,
+                    "numero_version": 1,
+                    "es_vigente": True,
+                    "estado_carga": EstadoCarga.CARGADO.value,
+                    "fecha_carga": datetime.now(timezone.utc),
+                    "es_activo": True,
+                }
+            )
+            self.db.flush()
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            self.storage_service.delete_files(stored_files)
+            raise
+
+        return ProposalDocumentUploadResponse(
+            idDocumento=documento.id_documento,
+            uuidArchivo=stored_file.uuid_archivo,
+            uuidExpediente=uuid_expediente,
+            idUsuario=id_usuario,
+            nombreOriginal=stored_file.nombre_original,
+            tipoMime=stored_file.tipo_mime,
+            tamanoBytes=stored_file.tamano_bytes,
+            hashSha256=stored_file.hash_sha256,
+            tipoDocumento=document_type.nombre,
+            numeroVersion=documento.numero_version,
+            esVigente=documento.es_vigente,
+            estadoCarga=documento.estado_carga,
+            mensaje="Documento cargado correctamente.",
+        )
+
     def get_document_file(self, uuid_archivo: UUID) -> DocumentFile:
         """Busca un documento por uuid_archivo y resuelve su archivo en disco.
 
@@ -370,6 +461,136 @@ class ProposalService:
         )
         return [self._to_review_item(proposal) for proposal in proposals]
 
+    def get_proposal_detail(self, uuid_expediente: UUID) -> ProposalDetailResponse:
+        """Devuelve la estructura de revisión con los comentarios más recientes."""
+        propuesta = self.propuesta_repository.get_by_uuid_for_detail(uuid_expediente)
+        if propuesta is None:
+            raise ProposalNotFoundError(
+                f"No existe una propuesta para el expediente '{uuid_expediente}'."
+            )
+
+        comments = self.list_comments(uuid_expediente, cursor=None)
+        review_item = self._to_review_item(propuesta)
+        return ProposalDetailResponse(
+            **review_item.model_dump(),
+            comments=comments,
+        )
+
+    def list_comments(
+        self,
+        uuid_expediente: UUID,
+        cursor: str | None = None,
+    ) -> ProposalComments:
+        """Devuelve comentarios recientes y un cursor para la siguiente página."""
+        propuesta = self.propuesta_repository.get_by_uuid(uuid_expediente)
+        if propuesta is None:
+            raise ProposalNotFoundError(
+                f"No existe una propuesta para el expediente '{uuid_expediente}'."
+            )
+
+        decoded_cursor = self._decode_comment_cursor(cursor) if cursor else None
+        comments, total = self.comentario_repository.get_page(
+            id_propuesta=propuesta.id_propuesta,
+            limit=3,
+            cursor=decoded_cursor,
+        )
+        has_next = len(comments) > 3
+        page = comments[:3]
+        next_cursor = (
+            self._encode_comment_cursor(page[-1])
+            if has_next and page
+            else None
+        )
+        return ProposalComments(
+            items=[self._to_comment_item(comment) for comment in page],
+            total=total,
+            next_cursor=next_cursor,
+        )
+
+    def create_comment(
+        self,
+        uuid_expediente: UUID,
+        content: str,
+        id_usuario: int,
+    ) -> ProposalComment:
+        """Registra un comentario asociado a una propuesta existente."""
+        propuesta = self.propuesta_repository.get_by_uuid_for_update(uuid_expediente)
+        if propuesta is None:
+            raise ProposalNotFoundError(
+                f"No existe una propuesta para el expediente '{uuid_expediente}'."
+            )
+
+        usuario = self.usuario_repository.get_by_id(id_usuario)
+        if usuario is None or not usuario.es_activo:
+            raise InvalidCommentError(
+                "El usuario que registra el comentario no existe o está inactivo."
+            )
+
+        clean_content = content.strip()
+        if not clean_content:
+            raise InvalidCommentError("El comentario no puede estar vacío.")
+
+        try:
+            comentario = self.comentario_repository.add(
+                {
+                    "id_propuesta": propuesta.id_propuesta,
+                    "id_usuario": id_usuario,
+                    "contenido": clean_content,
+                }
+            )
+            comentario.usuario = usuario
+            self.db.flush()
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
+
+        return self._to_comment_item(comentario)
+
+    @staticmethod
+    def _encode_comment_cursor(comment: Comentario) -> str:
+        payload = json.dumps(
+            {
+                "created_at": comment.created_at.isoformat(),
+                "id": comment.id_comentario,
+            },
+            separators=(",", ":"),
+        ).encode()
+        return base64.urlsafe_b64encode(payload).decode().rstrip("=")
+
+    @staticmethod
+    def _decode_comment_cursor(cursor: str) -> tuple[datetime, int]:
+        try:
+            padding = "=" * (-len(cursor) % 4)
+            payload = json.loads(
+                base64.urlsafe_b64decode((cursor + padding).encode()).decode()
+            )
+            created_at = datetime.fromisoformat(payload["created_at"])
+            comment_id = int(payload["id"])
+            if created_at.tzinfo is None or comment_id <= 0:
+                raise ValueError
+            return created_at, comment_id
+        except (
+            binascii.Error,
+            UnicodeDecodeError,
+            KeyError,
+            TypeError,
+            ValueError,
+            json.JSONDecodeError,
+        ) as exc:
+            raise InvalidCommentCursorError(
+                "El cursor de comentarios no es válido."
+            ) from exc
+
+    @staticmethod
+    def _to_comment_item(comment: Comentario) -> ProposalComment:
+        return ProposalComment(
+            id=comment.id_comentario,
+            content=comment.contenido,
+            author=comment.usuario.nombre if comment.usuario else AUTOR_SISTEMA,
+            createdAt=comment.created_at,
+        )
+
     def _to_review_item(self, propuesta: Propuesta) -> ProposalReviewItem:
         solicitante = propuesta.solicitante
         documents = [
@@ -466,9 +687,8 @@ class ProposalService:
 
         return [
             ProposalReviewHistory(
-                id=self._history_id(propuesta.id_propuesta, item.id_historial),
-                kind=HistoryKind.DECISION.value,
                 text=self._history_text(item),
+                subject=self._history_subject(item),
                 author=self._history_author(item),
                 date=format_history_date(item.created_at),
             )
@@ -476,8 +696,8 @@ class ProposalService:
         ]
 
     @staticmethod
-    def _history_id(id_propuesta: int, id_historial: int) -> str:
-        return f"h-{id_propuesta}-{id_historial}"
+    def _history_subject(item) -> str | None:
+        return item.motivo
 
     @staticmethod
     def _history_author(item) -> str:
@@ -489,8 +709,6 @@ class ProposalService:
 
     @staticmethod
     def _history_text(item) -> str:
-        if item.motivo:
-            return item.motivo
         if item.estado_anterior is None:
             return f'Propuesta registrada en estado "{item.estado_nuevo.nombre}".'
         return (
