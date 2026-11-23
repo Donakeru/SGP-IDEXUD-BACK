@@ -13,3 +13,7 @@ alembic>=1.12.0
 psycopg[binary]>=3.1.0
 python-dotenv>=1.0.0
 python-multipart>=0.0.9
+
+
+# Autenticación Keycloak (validación de tokens JWT/OIDC)
+pyjwt[crypto]>=2.8.0

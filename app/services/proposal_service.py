@@ -144,11 +144,20 @@ class ProposalService:
             limit=limit,
         )
 
-    def create_proposal(self, data: CreateProposalDto) -> Propuesta:
+    def create_proposal(
+        self,
+        data: CreateProposalDto,
+        author_user_id: int | None = None,
+    ) -> Propuesta:
         """Registra propuesta, solicitante y archivos en una transacción.
 
         Los datos ``proposal_type`` todavía no se guardan porque la tabla de
         propuestas aún no tiene una columna para ese valor.
+
+        Si ``author_user_id`` es None (modo dev), el autor del historial y de los
+        documentos es el solicitante. Si trae un id (modo keycloak), el autor es
+        ese usuario autenticado y ``id_propuesta_solicitante`` queda en nulo, porque
+        los CHECK ``chk_he_autor`` y ``chk_doc_autor`` exigen exactamente un autor.
         """
         estado = self.estado_repository.get_by_name(
             EstadoPropuestaNombre.REGISTRADO.value
@@ -199,12 +208,17 @@ class ProposalService:
 
             self.db.flush()
 
+            id_solicitante_autor = (
+                solicitante.id_propuesta_solicitante if author_user_id is None else None
+            )
+
             self.historial_estado_repository.add(
                 {
                     "id_propuesta": propuesta.id_propuesta,
                     "id_estado_anterior": None,
                     "id_estado_nuevo": estado.id_propuesta_estado,
-                    "id_propuesta_solicitante": solicitante.id_propuesta_solicitante,
+                    "id_usuario": author_user_id,
+                    "id_propuesta_solicitante": id_solicitante_autor,
                     "motivo": MOTIVO_REGISTRO_INICIAL,
                 }
             )
@@ -214,7 +228,8 @@ class ProposalService:
                 stored_files=stored_files,
                 uuid_expediente=uuid_expediente,
                 id_propuesta=propuesta.id_propuesta,
-                id_propuesta_solicitante=solicitante.id_propuesta_solicitante,
+                id_propuesta_solicitante=id_solicitante_autor,
+                id_usuario=author_user_id,
                 tipo_documento=proposal_document_type,
             )
             self._register_files(
@@ -222,7 +237,8 @@ class ProposalService:
                 stored_files=stored_files,
                 uuid_expediente=uuid_expediente,
                 id_propuesta=propuesta.id_propuesta,
-                id_propuesta_solicitante=solicitante.id_propuesta_solicitante,
+                id_propuesta_solicitante=id_solicitante_autor,
+                id_usuario=author_user_id,
                 tipo_documento=faculty_document_type,
             )
 
@@ -250,8 +266,9 @@ class ProposalService:
         stored_files: list[StoredFile],
         uuid_expediente: UUID,
         id_propuesta: int,
-        id_propuesta_solicitante: int,
+        id_propuesta_solicitante: int | None,
         tipo_documento: TipoDocumento,
+        id_usuario: int | None = None,
     ) -> None:
         for upload in files:
             stored_file = self.storage_service.save_upload(
@@ -265,6 +282,7 @@ class ProposalService:
                     "uuid_archivo": stored_file.uuid_archivo,
                     "id_propuesta": id_propuesta,
                     "id_tipo_documento": tipo_documento.id_tipo_documento,
+                    "id_usuario": id_usuario,
                     "id_propuesta_solicitante": id_propuesta_solicitante,
                     "ruta_archivo": stored_file.ruta_archivo,
                     "nombre_original": stored_file.nombre_original,

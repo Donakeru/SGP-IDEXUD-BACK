@@ -1,6 +1,7 @@
 # Environments and Secrets
 .env
 .env.example
+!.env.example
 .venv
 venv/
 env/
@@ -33,3 +34,4 @@ Thumbs.db
 
 # Local uploaded files
 storages/
+docs/

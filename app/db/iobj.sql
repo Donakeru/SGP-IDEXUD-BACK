@@ -10,6 +10,7 @@ CREATE TABLE tsgp_usuario (
     nombre TEXT NOT NULL,
     correo TEXT NOT NULL UNIQUE,
     es_activo BOOLEAN NOT NULL DEFAULT TRUE,
+    keycloak_sub UUID,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -328,6 +329,9 @@ CREATE TABLE tsgp_comentario (
 CREATE INDEX idx_propuesta_estado ON tsgp_propuesta(id_propuesta_estado);
 
 -- Relaciones de Documentos
+-- Usuarios: vínculo con la cuenta de Keycloak (varios NULL permitidos)
+CREATE UNIQUE INDEX uq_usuario_keycloak_sub ON tsgp_usuario(keycloak_sub);
+
 CREATE INDEX idx_documento_propuesta ON tsgp_documento(id_propuesta);
 CREATE INDEX idx_documento_tipo ON tsgp_documento(id_tipo_documento);
 CREATE INDEX idx_documento_usuario ON tsgp_documento(id_usuario);

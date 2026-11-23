@@ -7,6 +7,8 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
+from app.core.principal import Principal
+from app.core.roles import ROLES_OPERATIVOS, RolCodigo
 from app.core.exceptions import (
     ConfigurationError,
     DocumentNotFoundError,
@@ -22,7 +24,12 @@ from app.core.exceptions import (
     UnsupportedReviewRoleError,
     UploadTooLargeError,
 )
-from app.dependencies import get_db
+from app.dependencies import (
+    ensure_review_role,
+    get_db,
+    require_any_role,
+    resolve_actor_id,
+)
 from app.schemas.propuesta import (
     CreateProposalDto,
     ProposalComment,
@@ -40,6 +47,14 @@ from app.services.proposal_service import ProposalService
 
 router = APIRouter(prefix="/proposal", tags=["proposal"])
 
+# Cualquiera de los cuatro roles operativos (en modo dev deja pasar).
+any_role = require_any_role(*ROLES_OPERATIVOS)
+only_equipo_multidisciplinar = require_any_role(RolCodigo.EQUIPO_MULTIDISCIPLINAR)
+# TODO: definir quién puede cambiar el estado por transición, usando
+# tsgp_transicion_estado.id_permiso, cuando se decida quién aprueba y rechaza.
+# Mientras tanto solo el administrador puede hacerlo.
+only_administrador = require_any_role(RolCodigo.ADMINISTRADOR)
+
 
 @router.get("/review", response_model=list[ProposalReviewItem])
 def review_proposals(
@@ -48,9 +63,12 @@ def review_proposals(
         min_length=1,
         description="Código del rol de la bandeja de revisión.",
     ),
+    principal: Principal = Depends(any_role),
     db: Session = Depends(get_db),
 ) -> list[ProposalReviewItem]:
     """Devuelve las propuestas filtradas por la bandeja del rol."""
+    # Con autenticación, el rol debe ser válido y pertenecer al usuario (o ser admin).
+    ensure_review_role(principal, rol)
     try:
         return ProposalService(db).list_review(rol=rol)
     except UnsupportedReviewRoleError as exc:
@@ -63,6 +81,7 @@ def review_proposals(
 @router.get(
     "/{uuid_expediente}/detail",
     response_model=ProposalDetailResponse,
+    dependencies=[Depends(any_role)],
 )
 def get_proposal_detail(
     uuid_expediente: UUID,
@@ -81,6 +100,7 @@ def get_proposal_detail(
 @router.get(
     "/{uuid_expediente}/comments",
     response_model=ProposalComments,
+    dependencies=[Depends(any_role)],
 )
 def get_proposal_comments(
     uuid_expediente: UUID,
@@ -110,6 +130,7 @@ def get_proposal_comments(
 def create_proposal_comment(
     uuid_expediente: UUID,
     data: ProposalCommentRequest,
+    principal: Principal = Depends(any_role),
     db: Session = Depends(get_db),
 ) -> ProposalComment:
     """Registra un comentario en la propuesta."""
@@ -117,7 +138,7 @@ def create_proposal_comment(
         return ProposalService(db).create_comment(
             uuid_expediente=uuid_expediente,
             content=data.content,
-            id_usuario=data.id_usuario,
+            id_usuario=resolve_actor_id(principal, data.id_usuario),
         )
     except ProposalNotFoundError as exc:
         raise HTTPException(
@@ -139,8 +160,11 @@ def create_proposal_comment(
 def upload_proposal_document(
     uuid_expediente: UUID,
     file: UploadFile = File(...),
-    id_usuario: int = Form(..., alias="idUsuario", gt=0),
+    # Se ignora con autenticación: el autor es el usuario autenticado.
+    # TODO(dev-mode): eliminar el parámetro junto con el modo dev.
+    id_usuario: int | None = Form(None, alias="idUsuario", gt=0),
     tipo_documento: str = Form(..., alias="tipoDocumento"),
+    principal: Principal = Depends(only_equipo_multidisciplinar),
     db: Session = Depends(get_db),
 ) -> ProposalDocumentUploadResponse:
     """Carga un documento a una propuesta por expediente para un usuario activo."""
@@ -148,7 +172,7 @@ def upload_proposal_document(
         return ProposalService(db).upload_document(
             uuid_expediente=uuid_expediente,
             upload=file,
-            id_usuario=id_usuario,
+            id_usuario=resolve_actor_id(principal, id_usuario),
             tipo_documento=tipo_documento,
         )
     except ProposalNotFoundError as exc:
@@ -185,6 +209,7 @@ def upload_proposal_document(
 def change_proposal_status(
     uuid_expediente: UUID,
     data: ProposalStateChangeRequest,
+    principal: Principal = Depends(only_administrador),
     db: Session = Depends(get_db),
 ) -> ProposalStateChangeResponse:
     """Cambia el estado de una propuesta y registra el historial."""
@@ -192,7 +217,7 @@ def change_proposal_status(
         result = ProposalService(db).change_proposal_status(
             uuid_expediente=uuid_expediente,
             estado_destino=data.estado_destino,
-            id_usuario=data.id_usuario,
+            id_usuario=resolve_actor_id(principal, data.id_usuario),
             motivo=data.motivo,
         )
     except ProposalNotFoundError as exc:
@@ -234,6 +259,7 @@ def change_proposal_status(
     "/documents/{uuid_archivo}",
     response_class=FileResponse,
     responses={status.HTTP_404_NOT_FOUND: {"description": "Documento no encontrado"}},
+    dependencies=[Depends(any_role)],
 )
 def get_document(
     uuid_archivo: UUID,
@@ -263,7 +289,11 @@ def get_document(
     )
 
 
-@router.get("/", response_model=ProposalListResponse)
+@router.get(
+    "/",
+    response_model=ProposalListResponse,
+    dependencies=[Depends(any_role)],
+)
 def get_proposals(
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=20, ge=1, le=100),
@@ -280,11 +310,17 @@ def get_proposals(
 )
 def create_new_proposal(
     data: Annotated[CreateProposalDto, Depends(CreateProposalDto.as_form)],
+    principal: Principal = Depends(only_equipo_multidisciplinar),
     db: Session = Depends(get_db),
 ) -> ProposalResponse:
     """Registra la propuesta, el solicitante y sus archivos."""
     try:
-        propuesta = ProposalService(db).create_proposal(data=data)
+        # Con autenticación el autor es el usuario; en modo dev id_usuario es None
+        # y el autor sigue siendo el solicitante.
+        propuesta = ProposalService(db).create_proposal(
+            data=data,
+            author_user_id=principal.id_usuario,
+        )
     except UploadTooLargeError as exc:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,

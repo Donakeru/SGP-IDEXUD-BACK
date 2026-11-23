@@ -5,7 +5,10 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Identity, Text, text
+from uuid import UUID
+
+from sqlalchemy import BigInteger, Boolean, DateTime, Identity, Index, Text, text
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -19,11 +22,15 @@ if TYPE_CHECKING:
 
 class Usuario(Base):
     __tablename__ = "tsgp_usuario"
+    __table_args__ = (
+        Index("uq_usuario_keycloak_sub", "keycloak_sub", unique=True),
+    )
 
     id_usuario: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
     nombre: Mapped[str] = mapped_column(Text, nullable=False)
     correo: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
     es_activo: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    keycloak_sub: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
 

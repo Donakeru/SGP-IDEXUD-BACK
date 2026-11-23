@@ -51,3 +51,23 @@ class InvalidDocumentTypeError(Exception):
 
 class InvalidDocumentUploaderError(Exception):
     """Indica que el usuario que carga el documento no es válido."""
+
+
+class InvalidTokenSubjectError(Exception):
+    """El claim sub del token no es un UUID válido."""
+
+
+class TokenEmailMissingError(Exception):
+    """El token no incluye el correo electrónico del usuario."""
+
+
+class EmailNotVerifiedError(Exception):
+    """El correo de la cuenta de Keycloak no está verificado."""
+
+
+class EmailAlreadyLinkedError(Exception):
+    """El correo ya pertenece a un usuario vinculado a otra cuenta de Keycloak."""
+
+
+class UserResolutionError(Exception):
+    """No se pudo resolver el usuario local tras varios intentos."""
