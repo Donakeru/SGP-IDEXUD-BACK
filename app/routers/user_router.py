@@ -4,11 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.roles import RolCodigo
-from app.dependencies import get_authenticated_user, get_db, require_any_role
-from app.models import Usuario
+from app.dependencies import AuthenticatedUser, get_db, require_any_role
 from app.schemas.rol import RolResponse
 from app.schemas.usuario import UserResponse
-from app.services.auth_service import get_user_roles
 from app.services.usuario_service import UsuarioService
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -17,7 +15,7 @@ router = APIRouter(prefix="/users", tags=["users"])
 # Debe declararse antes de "/{id_usuario}" para que "me" no se interprete como id.
 @router.get("/me", response_model=UserResponse)
 def get_me(
-    usuario: Usuario | None = Depends(get_authenticated_user),
+    usuario: AuthenticatedUser,
     db: Session = Depends(get_db),
 ) -> UserResponse:
     """Devuelve el usuario autenticado con sus roles.
@@ -39,7 +37,7 @@ def get_me(
         es_activo=usuario.es_activo,
         roles=[
             RolResponse(codigo=rol.codigo, nombre=rol.nombre)
-            for rol in get_user_roles(db, usuario.id_usuario)
+            for rol in UsuarioService(db).get_roles(usuario.id_usuario)
         ],
     )
 

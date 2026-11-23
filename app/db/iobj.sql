@@ -305,6 +305,8 @@ CREATE TABLE tsgp_comentario (
     id_propuesta BIGINT NOT NULL,
     id_usuario BIGINT NOT NULL,
     contenido TEXT NOT NULL,
+    categoria TEXT NOT NULL DEFAULT 'Visto bueno',
+    id_documento BIGINT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
@@ -316,7 +318,16 @@ CREATE TABLE tsgp_comentario (
     CONSTRAINT fk_com_usuario
         FOREIGN KEY (id_usuario)
         REFERENCES tsgp_usuario(id_usuario)
-        ON DELETE CASCADE
+        ON DELETE CASCADE,
+
+    -- Documento sobre el que se hace la observación (opcional).
+    CONSTRAINT fk_com_documento
+        FOREIGN KEY (id_documento)
+        REFERENCES tsgp_documento(id_documento)
+        ON DELETE SET NULL,
+
+    CONSTRAINT ck_com_categoria
+        CHECK (categoria IN ('Visto bueno', 'Aprobado con observaciones', 'Rechazado'))
 );
 
 /**
@@ -328,10 +339,10 @@ CREATE TABLE tsgp_comentario (
 -- Búsquedas y filtros en Propuestas
 CREATE INDEX idx_propuesta_estado ON tsgp_propuesta(id_propuesta_estado);
 
--- Relaciones de Documentos
 -- Usuarios: vínculo con la cuenta de Keycloak (varios NULL permitidos)
 CREATE UNIQUE INDEX uq_usuario_keycloak_sub ON tsgp_usuario(keycloak_sub);
 
+-- Relaciones de Documentos
 CREATE INDEX idx_documento_propuesta ON tsgp_documento(id_propuesta);
 CREATE INDEX idx_documento_tipo ON tsgp_documento(id_tipo_documento);
 CREATE INDEX idx_documento_usuario ON tsgp_documento(id_usuario);
@@ -347,6 +358,7 @@ CREATE INDEX idx_comentario_propuesta ON tsgp_comentario(id_propuesta);
 CREATE INDEX idx_comentario_propuesta_created
     ON tsgp_comentario(id_propuesta, created_at DESC, id_comentario DESC);
 CREATE INDEX idx_comentario_usuario ON tsgp_comentario(id_usuario);
+CREATE INDEX idx_comentario_documento ON tsgp_comentario(id_documento);
 
 -- Flujo de Transiciones
 CREATE INDEX idx_transicion_origen ON tsgp_transicion_estado(id_estado_origen);

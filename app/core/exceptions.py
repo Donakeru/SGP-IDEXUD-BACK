@@ -71,3 +71,7 @@ class EmailAlreadyLinkedError(Exception):
 
 class UserResolutionError(Exception):
     """No se pudo resolver el usuario local tras varios intentos."""
+
+
+class TransitionForbiddenError(Exception):
+    """El rol del usuario no puede ejecutar una transición de estado válida."""

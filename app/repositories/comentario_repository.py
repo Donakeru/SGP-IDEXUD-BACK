@@ -28,8 +28,13 @@ class ComentarioRepository:
             select(func.count(Comentario.id_comentario)).where(base_filter)
         ) or 0
 
-        statement = select(Comentario).options(joinedload(Comentario.usuario)).where(
-            base_filter
+        statement = (
+            select(Comentario)
+            .options(
+                joinedload(Comentario.usuario),
+                joinedload(Comentario.documento),
+            )
+            .where(base_filter)
         )
         if cursor is not None:
             cursor_created_at, cursor_id = cursor

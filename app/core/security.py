@@ -124,7 +124,7 @@ def get_realm_roles(claims: dict[str, Any]) -> set[str]:
 
 # TODO(keycloak-roles): sin uso por ahora, porque los roles se leen de la base de
 # datos (tsgp_usuario_rol). Podrá usarse si más adelante los roles salen del token
-# (realm_access.roles); en ese caso también puede reemplazar a get_user_roles.
+# (realm_access.roles); en ese caso también puede reemplazar a UsuarioService.get_roles.
 def require_realm_role(role: str):
     def role_checker(
         credentials: Annotated[

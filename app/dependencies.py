@@ -24,7 +24,7 @@ from app.core.exceptions import (
     TokenEmailMissingError,
     UserResolutionError,
 )
-from app.core.principal import ANONYMOUS_PRINCIPAL, Principal, RolInfo
+from app.core.principal import ANONYMOUS_PRINCIPAL, Principal
 from app.core.roles import RolCodigo
 from app.core.security import (
     bearer_scheme,
@@ -34,12 +34,14 @@ from app.core.security import (
 )
 from app.db.database import get_db
 from app.models import Usuario
-from app.services.auth_service import AuthService, get_user_roles
+from app.services.auth_service import AuthService
+from app.services.usuario_service import UsuarioService
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
     "get_db",
+    "AuthenticatedUser",
     "get_authenticated_user",
     "get_current_principal",
     "require_any_role",
@@ -94,22 +96,26 @@ def get_authenticated_user(
         ) from exc
 
 
+# Usuario local del token (None en modo dev). Los routers lo usan como tipo para no
+# importar el modelo: `usuario: AuthenticatedUser`.
+AuthenticatedUser = Annotated[Usuario | None, Depends(get_authenticated_user)]
+
+
 def get_current_principal(
-    usuario: Annotated[Usuario | None, Depends(get_authenticated_user)],
+    usuario: AuthenticatedUser,
     db: Session = Depends(get_db),
 ) -> Principal:
     """Construye el principal. No rechaza usuarios inactivos ni sin roles."""
     if usuario is None:
         return ANONYMOUS_PRINCIPAL
 
-    roles = get_user_roles(db, usuario.id_usuario)
+    roles = UsuarioService(db).get_roles(usuario.id_usuario)
     return Principal(
         id_usuario=usuario.id_usuario,
         nombre=usuario.nombre,
         correo=usuario.correo,
         es_activo=usuario.es_activo,
         roles=frozenset(rol.codigo for rol in roles),
-        roles_info=tuple(RolInfo(codigo=rol.codigo, nombre=rol.nombre) for rol in roles),
     )
 
 

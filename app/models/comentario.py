@@ -5,12 +5,23 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Identity, Index, Text, text
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Identity,
+    Index,
+    Text,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.core.constants import CategoriaComentario
 from app.db.base import Base
 
 if TYPE_CHECKING:
+    from app.models.documento import Documento
     from app.models.propuesta import Propuesta
     from app.models.usuario import Usuario
 
@@ -18,6 +29,13 @@ if TYPE_CHECKING:
 class Comentario(Base):
     __tablename__ = "tsgp_comentario"
     __table_args__ = (
+        CheckConstraint(
+            "categoria IN ("
+            + ", ".join(f"'{categoria.value}'" for categoria in CategoriaComentario)
+            + ")",
+            name="ck_com_categoria",
+        ),
+        Index("idx_comentario_documento", "id_documento"),
         Index(
             "idx_comentario_propuesta_created",
             "id_propuesta",
@@ -34,8 +52,20 @@ class Comentario(Base):
         BigInteger, ForeignKey("tsgp_usuario.id_usuario", ondelete="CASCADE"), nullable=False
     )
     contenido: Mapped[str] = mapped_column(Text, nullable=False)
+    categoria: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default=CategoriaComentario.VISTO_BUENO.value,
+        server_default=text("'Visto bueno'"),
+    )
+    id_documento: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("tsgp_documento.id_documento", ondelete="SET NULL"),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
 
     propuesta: Mapped[Propuesta] = relationship(back_populates="comentarios")
     usuario: Mapped[Usuario] = relationship(back_populates="comentarios")
+    documento: Mapped[Documento | None] = relationship()

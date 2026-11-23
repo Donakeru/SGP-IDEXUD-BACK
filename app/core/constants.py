@@ -17,6 +17,8 @@ class EstadoPropuestaNombre(StrEnum):
     ACEPTADO = "Aceptado"
     RECHAZADO = "Rechazado"
     EN_REVISION_DIRECCION = "En Revision por Direccion"
+    PREAPROBADO = "Preaprobado"
+    APROBADO = "Aprobado"
 
 
 class TipoDocumentoNombre(StrEnum):
@@ -28,6 +30,14 @@ class EstadoCarga(StrEnum):
     PENDIENTE = "pendiente"
     CARGADO = "cargado"
     FALLIDO = "fallido"
+
+
+class CategoriaComentario(StrEnum):
+    """Categorías de un comentario; deben coincidir con ck_com_categoria."""
+
+    VISTO_BUENO = "Visto bueno"
+    APROBADO_CON_OBSERVACIONES = "Aprobado con observaciones"
+    RECHAZADO = "Rechazado"
 
 
 # Tipos MIME que el navegador puede mostrar inline sin riesgo de ejecutar

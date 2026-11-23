@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.core.constants import (
     AUTOR_SISTEMA,
     INLINE_MIME_TYPES,
+    CategoriaComentario,
     MOTIVO_REGISTRO_INICIAL,
     EstadoCarga,
     EstadoPropuestaNombre,
@@ -31,8 +32,10 @@ from app.core.exceptions import (
     InvalidTransitionActorError,
     ProposalNotFoundError,
     ProposalStateNotFoundError,
+    TransitionForbiddenError,
     UnsupportedReviewRoleError,
 )
+from app.core.transitions import roles_for_transition
 from app.models.comentario import Comentario
 from app.models.documento import Documento
 from app.models.propuesta import Propuesta
@@ -406,8 +409,14 @@ class ProposalService:
         estado_destino: str,
         id_usuario: int,
         motivo: str | None = None,
+        actor_roles: frozenset[str] | None = None,
     ) -> ProposalStateChangeResult:
-        """Cambia el estado permitido y registra el evento en el historial."""
+        """Cambia el estado permitido y registra el evento en el historial.
+
+        Con ``actor_roles`` (modo keycloak) la transición debe estar en la matriz
+        de ``app.core.transitions`` y el rol debe poder ejecutarla. Con ``None``
+        (modo dev) no se valida la matriz, igual que antes.
+        """
         target_name = estado_destino.strip()
         propuesta = self.propuesta_repository.get_by_uuid_for_update(
             uuid_expediente
@@ -429,6 +438,17 @@ class ProposalService:
             raise InvalidProposalTransitionError(
                 f"La propuesta ya se encuentra en el estado '{current_name}'."
             )
+
+        if actor_roles is not None:
+            allowed_roles = roles_for_transition(current_name, target_name)
+            if allowed_roles is None:
+                raise InvalidProposalTransitionError(
+                    "Transición de estado no permitida"
+                )
+            if allowed_roles.isdisjoint(actor_roles):
+                raise TransitionForbiddenError(
+                    "No tienes permisos para esta transición"
+                )
 
         usuario = self.usuario_repository.get_by_id(id_usuario)
         if usuario is None or not usuario.es_activo:
@@ -530,8 +550,14 @@ class ProposalService:
         uuid_expediente: UUID,
         content: str,
         id_usuario: int,
+        category: str = CategoriaComentario.VISTO_BUENO.value,
+        document_uuid: UUID | None = None,
     ) -> ProposalComment:
-        """Registra un comentario asociado a una propuesta existente."""
+        """Registra un comentario asociado a una propuesta existente.
+
+        ``document_uuid`` (opcional) es el documento sobre el que se hace la
+        observación; debe pertenecer a la misma propuesta.
+        """
         propuesta = self.propuesta_repository.get_by_uuid_for_update(uuid_expediente)
         if propuesta is None:
             raise ProposalNotFoundError(
@@ -548,15 +574,31 @@ class ProposalService:
         if not clean_content:
             raise InvalidCommentError("El comentario no puede estar vacío.")
 
+        documento: Documento | None = None
+        if document_uuid is not None:
+            documento = self.documento_repository.get_by_uuid(document_uuid)
+            if (
+                documento is None
+                or documento.id_propuesta != propuesta.id_propuesta
+                or not documento.es_activo
+                or documento.fecha_eliminacion is not None
+            ):
+                raise InvalidCommentError(
+                    "El documento relacionado no existe o no pertenece a la propuesta."
+                )
+
         try:
             comentario = self.comentario_repository.add(
                 {
                     "id_propuesta": propuesta.id_propuesta,
                     "id_usuario": id_usuario,
                     "contenido": clean_content,
+                    "categoria": category,
+                    "id_documento": documento.id_documento if documento else None,
                 }
             )
             comentario.usuario = usuario
+            comentario.documento = documento
             self.db.flush()
             self.db.commit()
         except Exception:
@@ -607,6 +649,11 @@ class ProposalService:
             content=comment.contenido,
             author=comment.usuario.nombre if comment.usuario else AUTOR_SISTEMA,
             createdAt=comment.created_at,
+            category=comment.categoria,
+            documentUuid=comment.documento.uuid_archivo if comment.documento else None,
+            documentName=(
+                comment.documento.nombre_original if comment.documento else None
+            ),
         )
 
     def _to_review_item(self, propuesta: Propuesta) -> ProposalReviewItem:

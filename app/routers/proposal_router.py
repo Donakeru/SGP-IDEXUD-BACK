@@ -21,6 +21,7 @@ from app.core.exceptions import (
     InvalidUploadError,
     ProposalNotFoundError,
     ProposalStateNotFoundError,
+    TransitionForbiddenError,
     UnsupportedReviewRoleError,
     UploadTooLargeError,
 )
@@ -50,10 +51,6 @@ router = APIRouter(prefix="/proposal", tags=["proposal"])
 # Cualquiera de los cuatro roles operativos (en modo dev deja pasar).
 any_role = require_any_role(*ROLES_OPERATIVOS)
 only_equipo_multidisciplinar = require_any_role(RolCodigo.EQUIPO_MULTIDISCIPLINAR)
-# TODO: definir quién puede cambiar el estado por transición, usando
-# tsgp_transicion_estado.id_permiso, cuando se decida quién aprueba y rechaza.
-# Mientras tanto solo el administrador puede hacerlo.
-only_administrador = require_any_role(RolCodigo.ADMINISTRADOR)
 
 
 @router.get("/review", response_model=list[ProposalReviewItem])
@@ -139,6 +136,8 @@ def create_proposal_comment(
             uuid_expediente=uuid_expediente,
             content=data.content,
             id_usuario=resolve_actor_id(principal, data.id_usuario),
+            category=data.category.value,
+            document_uuid=data.document_uuid,
         )
     except ProposalNotFoundError as exc:
         raise HTTPException(
@@ -164,7 +163,9 @@ def upload_proposal_document(
     # TODO(dev-mode): eliminar el parámetro junto con el modo dev.
     id_usuario: int | None = Form(None, alias="idUsuario", gt=0),
     tipo_documento: str = Form(..., alias="tipoDocumento"),
-    principal: Principal = Depends(only_equipo_multidisciplinar),
+    # Los cuatro roles pueden adjuntar documentos: las revisiones se respaldan con
+    # uno o varios archivos.
+    principal: Principal = Depends(any_role),
     db: Session = Depends(get_db),
 ) -> ProposalDocumentUploadResponse:
     """Carga un documento a una propuesta por expediente para un usuario activo."""
@@ -209,16 +210,22 @@ def upload_proposal_document(
 def change_proposal_status(
     uuid_expediente: UUID,
     data: ProposalStateChangeRequest,
-    principal: Principal = Depends(only_administrador),
+    principal: Principal = Depends(any_role),
     db: Session = Depends(get_db),
 ) -> ProposalStateChangeResponse:
-    """Cambia el estado de una propuesta y registra el historial."""
+    """Cambia el estado de una propuesta y registra el historial.
+
+    Con autenticación, la transición debe estar en la matriz de
+    ``app.core.transitions`` y el rol del usuario debe poder ejecutarla.
+    """
     try:
         result = ProposalService(db).change_proposal_status(
             uuid_expediente=uuid_expediente,
             estado_destino=data.estado_destino,
             id_usuario=resolve_actor_id(principal, data.id_usuario),
             motivo=data.motivo,
+            # None en modo dev: no se valida la matriz.
+            actor_roles=None if principal.is_anonymous else principal.roles,
         )
     except ProposalNotFoundError as exc:
         raise HTTPException(
@@ -228,6 +235,11 @@ def change_proposal_status(
     except InvalidProposalTransitionError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except TransitionForbiddenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
             detail=str(exc),
         ) from exc
     except InvalidTransitionActorError as exc:

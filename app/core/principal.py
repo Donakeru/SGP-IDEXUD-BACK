@@ -4,12 +4,6 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
-class RolInfo:
-    codigo: str
-    nombre: str
-
-
-@dataclass(frozen=True)
 class Principal:
     """Estado real del usuario de la petición.
 
@@ -22,7 +16,6 @@ class Principal:
     correo: str | None
     es_activo: bool
     roles: frozenset[str]
-    roles_info: tuple[RolInfo, ...] = ()
 
     @property
     def is_anonymous(self) -> bool:

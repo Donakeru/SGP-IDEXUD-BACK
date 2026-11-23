@@ -14,21 +14,12 @@ from app.core.exceptions import (
     TokenEmailMissingError,
     UserResolutionError,
 )
-from app.models import Rol, Usuario
+from app.models import Usuario
 from app.repositories import UsuarioRepository
 
 logger = logging.getLogger(__name__)
 
 MAX_RESOLUTION_ATTEMPTS = 3
-
-
-def get_user_roles(db: Session, id_usuario: int) -> list[Rol]:
-    """Devuelve los roles del usuario. Único punto de lectura de roles.
-
-    TODO(keycloak-roles): puede reemplazarse por los roles de realm del token
-    (claim realm_access.roles) si más adelante los roles salen de Keycloak.
-    """
-    return UsuarioRepository(db).get_roles(id_usuario)
 
 
 class AuthService:
