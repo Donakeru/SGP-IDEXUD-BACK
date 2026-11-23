@@ -13,9 +13,8 @@ class ProposalStateChangeRequest(BaseModel):
         min_length=1,
         max_length=100,
     )
-    # En modo keycloak se ignora: el autor es el usuario autenticado.
-    # TODO(dev-mode): eliminar el campo junto con el modo dev.
-    id_usuario: int | None = Field(default=None, alias="idUsuario", gt=0)
+    # El autor es siempre el usuario autenticado. Los campos extra (por ejemplo un
+    # idUsuario que aún envíe el front) se ignoran: no usar extra="forbid".
     motivo: str | None = Field(default=None, max_length=1000)
 
 

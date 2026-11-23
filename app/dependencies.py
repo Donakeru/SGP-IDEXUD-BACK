@@ -1,12 +1,11 @@
 """Dependencias compartidas por los routers.
 
-Cadena de autenticación y autorización:
+Cadena de autenticación y autorización (Keycloak es el único modo):
 
     get_authenticated_user -> get_current_principal -> require_any_role
 
-Solo ``get_authenticated_user`` lee ``settings.auth_mode``. Los routers nunca
-consultan el modo: usan ``principal.is_anonymous`` cuando necesitan distinguir si
-hay un usuario real detrás de la petición.
+Todo endpoint protegido depende de ``get_authenticated_user`` (directamente o a
+través de ``require_any_role``), que siempre valida el token Bearer.
 """
 
 import logging
@@ -16,7 +15,6 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
-from app.core.config import AUTH_MODE_DEV, settings
 from app.core.exceptions import (
     EmailAlreadyLinkedError,
     EmailNotVerifiedError,
@@ -24,7 +22,7 @@ from app.core.exceptions import (
     TokenEmailMissingError,
     UserResolutionError,
 )
-from app.core.principal import ANONYMOUS_PRINCIPAL, Principal
+from app.core.principal import Principal
 from app.core.roles import RolCodigo
 from app.core.security import (
     bearer_scheme,
@@ -45,7 +43,6 @@ __all__ = [
     "get_authenticated_user",
     "get_current_principal",
     "require_any_role",
-    "resolve_actor_id",
     "ensure_review_role",
 ]
 
@@ -56,16 +53,8 @@ def get_authenticated_user(
         Depends(bearer_scheme),
     ] = None,
     db: Session = Depends(get_db),
-) -> Usuario | None:
-    """Valida el token y devuelve el usuario local, sin verificar estado ni roles.
-
-    En modo dev devuelve None (no hay usuario real).
-    """
-    # TODO(dev-mode): el modo dev debe eliminarse antes de desplegar; con él se
-    # van esta rama, ANONYMOUS_PRINCIPAL y los usos de principal.is_anonymous.
-    if settings.auth_mode == AUTH_MODE_DEV:
-        return None
-
+) -> Usuario:
+    """Valida el token y devuelve el usuario local, sin verificar estado ni roles."""
     claims = verify_token(extract_bearer_token(credentials))
 
     try:
@@ -96,9 +85,9 @@ def get_authenticated_user(
         ) from exc
 
 
-# Usuario local del token (None en modo dev). Los routers lo usan como tipo para no
-# importar el modelo: `usuario: AuthenticatedUser`.
-AuthenticatedUser = Annotated[Usuario | None, Depends(get_authenticated_user)]
+# Usuario local del token. Los routers lo usan como tipo para no importar el modelo:
+# `usuario: AuthenticatedUser`.
+AuthenticatedUser = Annotated[Usuario, Depends(get_authenticated_user)]
 
 
 def get_current_principal(
@@ -106,9 +95,6 @@ def get_current_principal(
     db: Session = Depends(get_db),
 ) -> Principal:
     """Construye el principal. No rechaza usuarios inactivos ni sin roles."""
-    if usuario is None:
-        return ANONYMOUS_PRINCIPAL
-
     roles = UsuarioService(db).get_roles(usuario.id_usuario)
     return Principal(
         id_usuario=usuario.id_usuario,
@@ -122,16 +108,13 @@ def get_current_principal(
 def require_any_role(*roles: RolCodigo):
     """Exige que el usuario esté activo, tenga roles y posea alguno de ``roles``.
 
-    Devuelve el principal. En modo dev (principal anónimo) deja pasar siempre.
+    Devuelve el principal.
     """
     allowed = frozenset(role.value for role in roles)
 
     def role_checker(
         principal: Annotated[Principal, Depends(get_current_principal)],
     ) -> Principal:
-        if principal.is_anonymous:
-            return principal
-
         if not principal.es_activo:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -152,39 +135,12 @@ def require_any_role(*roles: RolCodigo):
     return role_checker
 
 
-def resolve_actor_id(principal: Principal, client_id: int | None) -> int:
-    """Devuelve el id del usuario que ejecuta la acción.
-
-    Con usuario real se usa siempre el autenticado y se ignora el valor del
-    cliente (con un warning si difiere). En modo dev se usa el del cliente.
-    """
-    if not principal.is_anonymous:
-        if client_id is not None and client_id != principal.id_usuario:
-            logger.warning(
-                "idUsuario enviado por el cliente (%s) difiere del usuario "
-                "autenticado (%s); se ignora.",
-                client_id,
-                principal.id_usuario,
-            )
-        return principal.id_usuario
-
-    # TODO(dev-mode): eliminar con el modo dev; el autor siempre será el autenticado.
-    if client_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="idUsuario es obligatorio",
-        )
-    return client_id
-
-
 def ensure_review_role(principal: Principal, rol: str) -> None:
-    """Valida el parámetro ``rol`` de la bandeja de revisión (solo con usuario real).
+    """Valida el parámetro ``rol`` de la bandeja de revisión.
 
-    En modo dev no valida nada, para conservar el comportamiento actual.
+    Debe ser uno de los cuatro códigos (422) y el principal debe tener ese rol o ser
+    administrador (403).
     """
-    if principal.is_anonymous:
-        return
-
     code = rol.strip().lower()
     valid_codes = [role.value for role in RolCodigo]
     if code not in valid_codes:

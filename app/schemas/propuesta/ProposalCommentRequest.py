@@ -12,6 +12,5 @@ class ProposalCommentRequest(BaseModel):
     category: CategoriaComentario = CategoriaComentario.VISTO_BUENO
     # Documento sobre el que se hace la observación (uuid_archivo), opcional.
     document_uuid: UUID | None = Field(default=None, alias="documentUuid")
-    # En modo keycloak se ignora: el autor es el usuario autenticado.
-    # TODO(dev-mode): eliminar el campo junto con el modo dev.
-    id_usuario: int | None = Field(default=None, alias="idUsuario", gt=0)
+    # El autor es siempre el usuario autenticado. Los campos extra (por ejemplo un
+    # idUsuario que aún envíe el front) se ignoran: no usar extra="forbid".

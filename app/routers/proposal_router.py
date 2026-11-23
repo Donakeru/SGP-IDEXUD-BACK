@@ -29,7 +29,6 @@ from app.dependencies import (
     ensure_review_role,
     get_db,
     require_any_role,
-    resolve_actor_id,
 )
 from app.schemas.propuesta import (
     CreateProposalDto,
@@ -48,7 +47,7 @@ from app.services.proposal_service import ProposalService
 
 router = APIRouter(prefix="/proposal", tags=["proposal"])
 
-# Cualquiera de los cuatro roles operativos (en modo dev deja pasar).
+# Cualquiera de los cuatro roles operativos.
 any_role = require_any_role(*ROLES_OPERATIVOS)
 only_equipo_multidisciplinar = require_any_role(RolCodigo.EQUIPO_MULTIDISCIPLINAR)
 
@@ -64,7 +63,7 @@ def review_proposals(
     db: Session = Depends(get_db),
 ) -> list[ProposalReviewItem]:
     """Devuelve las propuestas filtradas por la bandeja del rol."""
-    # Con autenticación, el rol debe ser válido y pertenecer al usuario (o ser admin).
+    # El rol debe ser válido y pertenecer al usuario (o ser administrador).
     ensure_review_role(principal, rol)
     try:
         return ProposalService(db).list_review(rol=rol)
@@ -135,7 +134,7 @@ def create_proposal_comment(
         return ProposalService(db).create_comment(
             uuid_expediente=uuid_expediente,
             content=data.content,
-            id_usuario=resolve_actor_id(principal, data.id_usuario),
+            id_usuario=principal.id_usuario,
             category=data.category.value,
             document_uuid=data.document_uuid,
         )
@@ -159,9 +158,6 @@ def create_proposal_comment(
 def upload_proposal_document(
     uuid_expediente: UUID,
     file: UploadFile = File(...),
-    # Se ignora con autenticación: el autor es el usuario autenticado.
-    # TODO(dev-mode): eliminar el parámetro junto con el modo dev.
-    id_usuario: int | None = Form(None, alias="idUsuario", gt=0),
     tipo_documento: str = Form(..., alias="tipoDocumento"),
     # Los cuatro roles pueden adjuntar documentos: las revisiones se respaldan con
     # uno o varios archivos.
@@ -173,7 +169,7 @@ def upload_proposal_document(
         return ProposalService(db).upload_document(
             uuid_expediente=uuid_expediente,
             upload=file,
-            id_usuario=resolve_actor_id(principal, id_usuario),
+            id_usuario=principal.id_usuario,
             tipo_documento=tipo_documento,
         )
     except ProposalNotFoundError as exc:
@@ -215,17 +211,16 @@ def change_proposal_status(
 ) -> ProposalStateChangeResponse:
     """Cambia el estado de una propuesta y registra el historial.
 
-    Con autenticación, la transición debe estar en la matriz de
+    La transición debe estar en la matriz de
     ``app.core.transitions`` y el rol del usuario debe poder ejecutarla.
     """
     try:
         result = ProposalService(db).change_proposal_status(
             uuid_expediente=uuid_expediente,
             estado_destino=data.estado_destino,
-            id_usuario=resolve_actor_id(principal, data.id_usuario),
+            id_usuario=principal.id_usuario,
             motivo=data.motivo,
-            # None en modo dev: no se valida la matriz.
-            actor_roles=None if principal.is_anonymous else principal.roles,
+            actor_roles=principal.roles,
         )
     except ProposalNotFoundError as exc:
         raise HTTPException(
@@ -327,8 +322,8 @@ def create_new_proposal(
 ) -> ProposalResponse:
     """Registra la propuesta, el solicitante y sus archivos."""
     try:
-        # Con autenticación el autor es el usuario; en modo dev id_usuario es None
-        # y el autor sigue siendo el solicitante.
+        # El autor es siempre el usuario autenticado; el solicitante se guarda con
+        # los datos del formulario.
         propuesta = ProposalService(db).create_proposal(
             data=data,
             author_user_id=principal.id_usuario,

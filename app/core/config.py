@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from os import getenv
+from os import environ, getenv
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -9,13 +9,9 @@ from sqlalchemy.engine import URL
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(PROJECT_ROOT / ".env", override=False)
 
-AUTH_MODE_DEV = "dev"
-AUTH_MODE_KEYCLOAK = "keycloak"
-VALID_AUTH_MODES = (AUTH_MODE_DEV, AUTH_MODE_KEYCLOAK)
-
-# TODO(dev-mode): el modo dev debe eliminarse antes de desplegar. Ver
-# docs/spec/keycloak-backend/design.md, sección 3.
-DEV_ALLOWED_ENVIRONMENTS = ("development", "local")
+# Entornos donde se publica la documentación de la API (/docs, /redoc, /openapi.json)
+# y donde se permite el eco de SQL. En cualquier otro valor quedan desactivados.
+LOCAL_ENVIRONMENTS = ("development", "local")
 
 DEFAULT_APP_SUBPATH = "/api"
 DEFAULT_CORS_ORIGINS = "http://localhost:5173,http://localhost:3000"
@@ -38,12 +34,15 @@ def _read_cors_origins() -> list[str]:
     return _split_csv(raw if raw is not None else DEFAULT_CORS_ORIGINS)
 
 
+def _is_true(raw: str | None) -> bool:
+    return (raw or "").strip().lower() in ("1", "true", "yes", "si", "sí")
+
+
 @dataclass(frozen=True)
 class Settings:
     """Configuración cargada desde las variables en .env"""
 
     environment: str = getenv("ENVIRONMENT") or "development"
-    environment_defined: bool = bool((getenv("ENVIRONMENT") or "").strip())
     db_user: str = getenv("DB_USER", "")
     db_password: str = field(default=getenv("DB_PASSWORD", ""), repr=False)
     db_host: str = getenv("DB_HOST") or "localhost"
@@ -57,11 +56,6 @@ class Settings:
         default_factory=lambda: _normalize_subpath(getenv("APP_SUBPATH"))
     )
     cors_origins: list[str] = field(default_factory=_read_cors_origins)
-    auth_mode: str = field(
-        default_factory=lambda: (getenv("AUTH_MODE") or AUTH_MODE_KEYCLOAK)
-        .strip()
-        .lower()
-    )
     keycloak_url: str = field(
         default_factory=lambda: (getenv("KEYCLOAK_URL") or "").strip().rstrip("/")
     )
@@ -71,29 +65,15 @@ class Settings:
     keycloak_audiences: list[str] = field(
         default_factory=lambda: _split_csv(getenv("KEYCLOAK_AUDIENCE"))
     )
+    sql_echo_requested: bool = field(
+        default_factory=lambda: _is_true(getenv("SQL_ECHO"))
+    )
+    # AUTH_MODE ya no existe; si el entorno aún lo define, main.py avisa una vez.
+    legacy_auth_mode_defined: bool = field(
+        default_factory=lambda: "AUTH_MODE" in environ
+    )
 
     def __post_init__(self) -> None:
-        if self.auth_mode not in VALID_AUTH_MODES:
-            raise RuntimeError(
-                f"AUTH_MODE='{self.auth_mode}' no es válido. "
-                f"Valores permitidos: {', '.join(VALID_AUTH_MODES)}."
-            )
-
-        if self.auth_mode == AUTH_MODE_DEV:
-            allowed = ", ".join(DEV_ALLOWED_ENVIRONMENTS)
-            if not self.environment_defined:
-                raise RuntimeError(
-                    "AUTH_MODE=dev deshabilita la autenticación y exige definir "
-                    f"ENVIRONMENT explícitamente con uno de: {allowed}."
-                )
-            if self.environment.strip().lower() not in DEV_ALLOWED_ENVIRONMENTS:
-                raise RuntimeError(
-                    "AUTH_MODE=dev deshabilita la autenticación y solo se permite "
-                    f"con ENVIRONMENT en: {allowed} "
-                    f"(valor recibido: '{self.environment}')."
-                )
-            return
-
         required_values = {
             "KEYCLOAK_URL": self.keycloak_url,
             "KEYCLOAK_REALM": self.keycloak_realm,
@@ -102,10 +82,23 @@ class Settings:
         missing = [name for name, value in required_values.items() if not value]
         if missing:
             raise RuntimeError(
-                "AUTH_MODE=keycloak requiere definir: "
-                f"{', '.join(missing)}. Completa estas variables en .env o en el "
-                "entorno, o usa AUTH_MODE=dev solo en desarrollo local."
+                f"Faltan variables de Keycloak: {', '.join(missing)}. "
+                "Completa estas variables en .env o en el entorno."
             )
+
+    @property
+    def is_local_environment(self) -> bool:
+        return self.environment.strip().lower() in LOCAL_ENVIRONMENTS
+
+    @property
+    def docs_enabled(self) -> bool:
+        """La documentación de la API solo se publica en development o local."""
+        return self.is_local_environment
+
+    @property
+    def sql_echo(self) -> bool:
+        """El eco de SQL (incluye parámetros) exige entorno local y SQL_ECHO=true."""
+        return self.sql_echo_requested and self.is_local_environment
 
     @property
     def max_upload_size_bytes(self) -> int:

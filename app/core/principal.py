@@ -11,23 +11,8 @@ class Principal:
     representa tal cual. Los 403 los aplica require_any_role.
     """
 
-    id_usuario: int | None
+    id_usuario: int
     nombre: str
-    correo: str | None
+    correo: str
     es_activo: bool
     roles: frozenset[str]
-
-    @property
-    def is_anonymous(self) -> bool:
-        """True en modo dev: no hay usuario real detrás de la petición."""
-        return self.id_usuario is None
-
-
-# TODO(dev-mode): eliminar junto con el modo dev antes de desplegar.
-ANONYMOUS_PRINCIPAL = Principal(
-    id_usuario=None,
-    nombre="Anónimo (dev)",
-    correo=None,
-    es_activo=True,
-    roles=frozenset(),
-)

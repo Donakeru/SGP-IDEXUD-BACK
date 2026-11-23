@@ -6,7 +6,6 @@ estado coinciden con tsgp_propuesta_estado.nombre.
 - Una transición que no está en la matriz no está permitida (409).
 - Una transición listada solo la ejecutan los roles indicados y el administrador,
   que puede todas (403 para cualquier otro rol).
-- En modo dev la matriz no se aplica.
 
 TODO: cuando se decida el modelo de permisos por transición, esta matriz puede
 leerse de tsgp_transicion_estado (id_permiso) en lugar de estar en código.

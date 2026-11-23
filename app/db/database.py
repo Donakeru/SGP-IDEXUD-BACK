@@ -13,7 +13,8 @@ logger = logging.getLogger(__name__)
 
 engine: Engine = create_engine(
     settings.get_database_url(),
-    echo=settings.environment.lower() == "development",
+    # El eco de SQL incluye parámetros (ids, sub): solo con SQL_ECHO=true en entorno local.
+    echo=settings.sql_echo,
     pool_pre_ping=True,
 )
 

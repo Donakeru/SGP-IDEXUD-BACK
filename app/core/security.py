@@ -1,4 +1,4 @@
-"""Validación de tokens JWT emitidos por Keycloak (solo modo keycloak).
+"""Validación de tokens JWT emitidos por Keycloak.
 
 Portado de docs/plantilla-keycloack/security.py. La autorización por rol no
 vive aquí: los roles se leen de la base de datos (ver app/services/auth_service.py).
@@ -29,7 +29,7 @@ _jwks_client: PyJWKClient | None = None
 
 
 def init_jwks_client() -> None:
-    """Crea el cliente JWKS. Solo se llama en modo keycloak.
+    """Crea el cliente JWKS. Se llama una vez, al arrancar la aplicación.
 
     El constructor no hace red: la primera consulta ocurre con el primer token.
     """
@@ -44,7 +44,7 @@ def init_jwks_client() -> None:
 def get_jwks_client() -> PyJWKClient:
     if _jwks_client is None:
         raise RuntimeError(
-            "El cliente JWKS no está inicializado (solo existe en modo keycloak)."
+            "El cliente JWKS no está inicializado (se crea al arrancar la aplicación)."
         )
     return _jwks_client
 
@@ -106,13 +106,15 @@ def verify_token(token: str) -> dict[str, Any]:
         _check_audience(payload)
         return payload
     except PyJWKClientConnectionError as exc:
-        logger.error("No se pudo consultar el JWKS de Keycloak: %s", exc)
+        # Solo el tipo de la excepción: su mensaje puede incluir URLs internas.
+        logger.error("No se pudo consultar el JWKS de Keycloak (%s).", type(exc).__name__)
         raise auth_unavailable() from exc
     except PyJWTError as exc:
         logger.warning("Token rechazado: %s", type(exc).__name__)
         raise unauthorized() from exc
     except Exception as exc:
-        logger.exception("Error inesperado al validar el token")
+        # Sin traceback ni mensaje: podrían exponer detalles internos o fragmentos del token.
+        logger.error("Error inesperado al validar el token (%s).", type(exc).__name__)
         raise unauthorized() from exc
 
 
